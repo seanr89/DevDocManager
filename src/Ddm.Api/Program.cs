@@ -5,6 +5,7 @@ using Ddm.Api.Identity;
 using Ddm.Api.Projects;
 using Ddm.Api.Storage;
 using Ddm.Api.Tokens;
+using OpenTelemetry.Metrics;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
@@ -19,6 +20,7 @@ builder.Services.AddDdmStorage(builder.Configuration);
 builder.Services.AddScoped<DocumentService>();
 builder.Services.AddSingleton<MarkdownRenderer>();
 builder.Services.AddOpenApi();
+builder.Services.AddOpenTelemetry().WithMetrics(m => m.AddAspNetCoreInstrumentation().AddPrometheusExporter());
 
 var app = builder.Build();
 app.MigrateIfConfigured();
@@ -34,6 +36,7 @@ app.EnsureAuthConfigured();
 app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
 app.MapReadiness();
 app.MapOpenApi("/api/v1/openapi.json");
+app.MapPrometheusScrapingEndpoint(); // /metrics: keep off the public ingress
 
 var v1 = app.MapGroup("/api/v1").RequireAuthorization();
 v1.MapMe();
