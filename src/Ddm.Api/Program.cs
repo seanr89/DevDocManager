@@ -30,6 +30,8 @@ app.MapReadiness();
 var v1 = app.MapGroup("/api/v1").RequireAuthorization();
 v1.MapMe();
 v1.MapProjects();
+v1.MapMembers();
+v1.MapAudit();
 
 app.Run();
 

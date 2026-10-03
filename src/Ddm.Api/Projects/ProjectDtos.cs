@@ -11,3 +11,6 @@ public sealed record ProjectDto(string Slug, string Name, string Description, st
 
 public sealed record CreateProjectRequest(string? Slug, string? Name, string? Description, string? Visibility);
 public sealed record UpdateProjectRequest(string? Name, string? Description, string? Visibility);
+public sealed record MemberDto(string UserId, string Role);
+public sealed record SetMemberRequest(string? Role);
+public sealed record AuditEntryDto(long Id, string Actor, string Action, string Target, DateTimeOffset At);

@@ -31,4 +31,10 @@ public abstract class ApiTestBase(PostgresFixture pg) : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Created, r.StatusCode);
         return await ReadAsync<ProjectDto>(r);
     }
+
+    protected static async Task AddMemberAsync(HttpClient admin, string slug, string userId, string role)
+    {
+        var r = await admin.PutAsJsonAsync($"/api/v1/projects/{slug}/members/{Uri.EscapeDataString(userId)}", new { role });
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+    }
 }
