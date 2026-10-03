@@ -1,6 +1,7 @@
 using Ddm.Api.Common;
 using Ddm.Api.Data;
 using Ddm.Api.Identity;
+using Ddm.Api.Projects;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
@@ -10,6 +11,7 @@ builder.Logging.AddJsonConsole();
 builder.Services.AddDdmProblemDetails();
 builder.Services.AddDdmData();
 builder.Services.AddDdmAuthentication();
+builder.Services.AddScoped<ProjectAuthorizer>();
 
 var app = builder.Build();
 app.MigrateIfConfigured();
@@ -27,6 +29,7 @@ app.MapReadiness();
 
 var v1 = app.MapGroup("/api/v1").RequireAuthorization();
 v1.MapMe();
+v1.MapProjects();
 
 app.Run();
 
