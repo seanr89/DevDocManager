@@ -2,6 +2,7 @@ using Ddm.Api.Common;
 using Ddm.Api.Data;
 using Ddm.Api.Identity;
 using Ddm.Api.Projects;
+using Ddm.Api.Storage;
 using Ddm.Api.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -13,6 +14,7 @@ builder.Services.AddDdmProblemDetails();
 builder.Services.AddDdmData();
 builder.Services.AddDdmAuthentication();
 builder.Services.AddScoped<ProjectAuthorizer>();
+builder.Services.AddDdmStorage(builder.Configuration);
 
 var app = builder.Build();
 app.MigrateIfConfigured();
