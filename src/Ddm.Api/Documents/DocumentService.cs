@@ -96,4 +96,56 @@ public sealed class DocumentService(DdmDbContext db, IBlobStore blobs)
     public async Task<byte[]> ReadContentAsync(ContentVersion version, CancellationToken ct) =>
         await blobs.GetAsync(version.ContentRef, ct)
         ?? throw new ApiException(500, "content_missing", "Stored content is missing", $"No object for {version.ContentRef}");
+
+    public async Task<Document> RequireDocumentAsync(Project project, string path, CancellationToken ct) =>
+        await db.Documents.AsNoTracking().SingleOrDefaultAsync(d => d.ProjectId == project.Id && d.Path == path, ct)
+        ?? throw ApiException.NotFound("document_not_found", "Document not found");
+
+    public async Task<ContentVersion> GetVersionAsync(Project project, string path, int number, CancellationToken ct)
+    {
+        var doc = await RequireDocumentAsync(project, path, ct);
+        return await db.Versions.AsNoTracking().SingleOrDefaultAsync(
+                   v => v.ItemType == ItemType.Document && v.ItemId == doc.Id && v.Number == number, ct)
+               ?? throw ApiException.NotFound("version_not_found", "Version not found");
+    }
+
+    public async Task<Page<VersionDto>> ListVersionsAsync(Project project, string path, int? limit, string? cursor, CancellationToken ct)
+    {
+        var doc = await RequireDocumentAsync(project, path, ct);
+        var take = Paging.ParseLimit(limit);
+        var before = Paging.DecodeLongCursor(cursor);
+
+        var query = db.Versions.AsNoTracking().Where(v => v.ItemType == ItemType.Document && v.ItemId == doc.Id);
+        if (before is not null) query = query.Where(v => v.Number < before);
+        var rows = await query.OrderByDescending(v => v.Number).Take(take + 1).ToListAsync(ct);
+        var page = Paging.ToPage(rows, take, v => v.Number.ToString());
+        return new(page.Items.Select(v => new VersionDto(v.Number, v.Author, v.Message, v.CreatedAt)).ToList(), page.Next);
+    }
+
+    /// <summary>Restoring writes the old content as a new version; history is never rewritten.</summary>
+    public async Task<WriteResult> RestoreAsync(
+        Caller caller, Project project, string path, int number, WritePrecondition pre, CancellationToken ct)
+    {
+        var version = await GetVersionAsync(project, path, number, ct);
+        var bytes = await ReadContentAsync(version, ct);
+        return await WriteAsync(caller, project, path, bytes, $"Restore version {number}", pre, requireIfMatch: false, ct);
+    }
+
+    public async Task DeleteAsync(Caller caller, Project project, string path, WritePrecondition pre, CancellationToken ct)
+    {
+        var doc = await db.Documents.SingleOrDefaultAsync(d => d.ProjectId == project.Id && d.Path == path, ct)
+                  ?? throw ApiException.NotFound("document_not_found", "Document not found");
+        if (pre.IfMatchVersion is { } v)
+        {
+            var current = await db.Versions.AsNoTracking().SingleAsync(x => x.Id == doc.CurrentVersionId, ct);
+            if (current.Number != v) throw ApiException.PreconditionFailed($"The document is at version {current.Number}, not {v}");
+        }
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        await db.Versions.Where(x => x.ItemType == ItemType.Document && x.ItemId == doc.Id).ExecuteDeleteAsync(ct);
+        db.Documents.Remove(doc);
+        db.Audit(caller, project.Id, "doc.delete", path);
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+    }
 }

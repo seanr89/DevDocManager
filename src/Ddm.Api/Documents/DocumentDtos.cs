@@ -13,3 +13,5 @@ public sealed record DocumentDto(string Path, string Title, int Version, DateTim
 }
 
 public sealed record CreateDocumentRequest(string? Path, string? Content, string? Message);
+public sealed record DocumentSummaryDto(string Path, string Title, int Version, DateTimeOffset UpdatedAt);
+public sealed record VersionDto(int Number, string Author, string? Message, DateTimeOffset CreatedAt);

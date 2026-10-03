@@ -1,8 +1,10 @@
 using System.Security.Claims;
 using System.Text;
 using Ddm.Api.Common;
+using Ddm.Api.Data;
 using Ddm.Api.Domain;
 using Ddm.Api.Identity;
+using Microsoft.EntityFrameworkCore;
 
 namespace Ddm.Api.Documents;
 
@@ -11,9 +13,12 @@ public static class DocumentEndpoints
     public static void MapDocuments(this RouteGroupBuilder v1)
     {
         var g = v1.MapGroup("/projects/{slug}/docs");
+        g.MapGet("", ListAsync);
         g.MapPost("", CreateAsync);
         g.MapGet("{**rest}", GetAsync);
         g.MapPut("{**rest}", PutAsync);
+        g.MapDelete("{**rest}", DeleteAsync);
+        g.MapPost("{**rest}", RestoreAsync);
     }
 
     private static async Task<IResult> CreateAsync(
@@ -34,14 +39,29 @@ public static class DocumentEndpoints
     }
 
     private static async Task<IResult> GetAsync(
-        string slug, string rest, HttpContext http, ClaimsPrincipal user,
+        string slug, string rest, string? cursor, int? limit, HttpContext http, ClaimsPrincipal user,
         ProjectAuthorizer authz, DocumentService docs, MarkdownRenderer renderer, CancellationToken ct)
     {
         var access = await authz.RequireAsync(Caller.From(user), slug, Role.Reader, ct);
-        if (DocRoute.Parse(rest) is not DocRoute.Current route) throw ApiException.NotFound("not_found", "No such route");
-        var path = DocumentPath.Require(route.Path);
-        var (_, version) = await docs.GetCurrentAsync(access.Project, path, ct);
-        return await RespondAsync(http, docs, renderer, path, version, ct);
+        switch (DocRoute.Parse(rest))
+        {
+            case DocRoute.Current c:
+            {
+                var path = DocumentPath.Require(c.Path);
+                var (_, version) = await docs.GetCurrentAsync(access.Project, path, ct);
+                return await RespondAsync(http, docs, renderer, path, version, ct);
+            }
+            case DocRoute.History h:
+                return Results.Ok(await docs.ListVersionsAsync(access.Project, DocumentPath.Require(h.Path), limit, cursor, ct));
+            case DocRoute.Snapshot s:
+            {
+                var path = DocumentPath.Require(s.Path);
+                var version = await docs.GetVersionAsync(access.Project, path, s.Number, ct);
+                return await RespondAsync(http, docs, renderer, path, version, ct);
+            }
+            default:
+                throw ApiException.NotFound("not_found", "No such route");
+        }
     }
 
     private static async Task<IResult> PutAsync(
@@ -57,6 +77,49 @@ public static class DocumentEndpoints
 
         var result = await docs.WriteAsync(caller, access.Project, path, bytes, message, pre, requireIfMatch: true, ct);
         return result.Created ? Created(http, slug, result) : Ok(http, result);
+    }
+
+    private static async Task<IResult> ListAsync(
+        string slug, string? prefix, string? cursor, int? limit, ClaimsPrincipal user,
+        ProjectAuthorizer authz, DdmDbContext db, CancellationToken ct)
+    {
+        var access = await authz.RequireAsync(Caller.From(user), slug, Role.Reader, ct);
+        var take = Paging.ParseLimit(limit);
+        var after = Paging.DecodeCursor(cursor);
+        if (prefix is { Length: > DocumentPath.MaxLength })
+            throw ApiException.BadRequest("validation_failed", "The request is not valid", "prefix is too long");
+
+        var docsQuery = db.Documents.Where(d => d.ProjectId == access.Project.Id);
+        if (!string.IsNullOrEmpty(prefix)) docsQuery = docsQuery.Where(d => d.Path.StartsWith(prefix));
+        if (after is not null) docsQuery = docsQuery.Where(d => string.Compare(d.Path, after) > 0);
+
+        var rows = await (from d in docsQuery
+                          join v in db.Versions on d.CurrentVersionId equals (Guid?)v.Id
+                          orderby d.Path
+                          select new DocumentSummaryDto(d.Path, d.Title, v.Number, d.UpdatedAt))
+            .Take(take + 1).ToListAsync(ct);
+        return Results.Ok(Paging.ToPage(rows, take, d => d.Path));
+    }
+
+    private static async Task<IResult> DeleteAsync(
+        string slug, string rest, HttpContext http, ClaimsPrincipal user, ProjectAuthorizer authz, DocumentService docs, CancellationToken ct)
+    {
+        var caller = Caller.From(user);
+        var access = await authz.RequireAsync(caller, slug, Role.Editor, ct);
+        if (DocRoute.Parse(rest) is not DocRoute.Current route) throw ApiException.NotFound("not_found", "No such route");
+        await docs.DeleteAsync(caller, access.Project, DocumentPath.Require(route.Path), Preconditions.Parse(http.Request.Headers), ct);
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> RestoreAsync(
+        string slug, string rest, HttpContext http, ClaimsPrincipal user, ProjectAuthorizer authz, DocumentService docs, CancellationToken ct)
+    {
+        var caller = Caller.From(user);
+        var access = await authz.RequireAsync(caller, slug, Role.Editor, ct);
+        if (DocRoute.Parse(rest) is not DocRoute.Restore route) throw ApiException.NotFound("not_found", "No such route");
+        var result = await docs.RestoreAsync(caller, access.Project, DocumentPath.Require(route.Path), route.Number,
+            Preconditions.Parse(http.Request.Headers), ct);
+        return Ok(http, result);
     }
 
     // --- shared helpers ---
