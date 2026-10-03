@@ -1,0 +1,40 @@
+using Ddm.Api.Documents;
+
+namespace Ddm.Api.Tests;
+
+public class MarkdownRendererTests
+{
+    private static readonly MarkdownRenderer Renderer = new();
+
+    [Fact]
+    public void Renders_headings_with_anchor_ids_tables_and_code_fences()
+    {
+        var html = Renderer.ToHtml("# Title\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```csharp\nvar x = 1;\n```\n");
+        Assert.Contains("<h1", html);
+        Assert.Contains("id=\"title\"", html);
+        Assert.Contains("<table", html);
+        Assert.Contains("<code", html);
+    }
+
+    [Fact]
+    public void Renders_admonition_style_alerts()
+    {
+        Assert.Contains("markdown-alert", Renderer.ToHtml("> [!NOTE]\n> Remember this\n"));
+    }
+
+    [Theory]
+    [InlineData("<script>alert(1)</script>", "<script")]
+    [InlineData("<img src=x onerror=alert(1)>", "onerror")]
+    [InlineData("[click](javascript:alert(1))", "javascript:")]
+    [InlineData("<a href=\"javascript:alert(1)\">x</a>", "javascript:")]
+    [InlineData("<iframe src=\"https://evil.example\"></iframe>", "<iframe")]
+    [InlineData("<div onclick=\"x()\">hi</div>", "onclick")]
+    [InlineData("![x](data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9YWxlcnQoMSk+)", "data:")]
+    [InlineData("<svg onload=alert(1)></svg>", "onload")]
+    public void Dangerous_content_is_removed(string markdown, string forbidden) =>
+        Assert.DoesNotContain(forbidden, Renderer.ToHtml(markdown), StringComparison.OrdinalIgnoreCase);
+
+    [Fact]
+    public void Safe_links_survive() =>
+        Assert.Contains("href=\"https://example.com\"", Renderer.ToHtml("[ok](https://example.com)"));
+}

@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment: { POSTGRES_USER: ddm, POSTGRES_PASSWORD: ddm, POSTGRES_DB: ddm }
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+  # S3-compatible object storage. RustFS is a MinIO drop-in; MinIO no longer publishes public images.
+  minio:
+    image: rustfs/rustfs:latest
+    environment: { RUSTFS_ACCESS_KEY: minioadmin, RUSTFS_SECRET_KEY: minioadmin }
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [miniodata:/data]
+volumes:
+  pgdata: {}
+  miniodata: {}
