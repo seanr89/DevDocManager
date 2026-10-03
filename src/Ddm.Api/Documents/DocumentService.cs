@@ -61,6 +61,11 @@ public sealed class DocumentService(DdmDbContext db, IBlobStore blobs)
             // Another writer took this version number (or created this path) first.
             throw ApiException.PreconditionFailed("The document was changed by another writer; fetch the latest version and retry");
         }
+        catch (DbUpdateConcurrencyException)
+        {
+            // The document row we read was deleted before we saved.
+            throw ApiException.PreconditionFailed("The document was deleted by another writer");
+        }
         return new(path, parsed, version, created, Changed: true);
     }
 
@@ -133,7 +138,11 @@ public sealed class DocumentService(DdmDbContext db, IBlobStore blobs)
 
     public async Task DeleteAsync(Caller caller, Project project, string path, WritePrecondition pre, CancellationToken ct)
     {
-        var doc = await db.Documents.SingleOrDefaultAsync(d => d.ProjectId == project.Id && d.Path == path, ct)
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        // Lock the row so a concurrent write either commits before our If-Match check or fails after we delete.
+        var doc = await db.Documents
+                      .FromSqlInterpolated($"SELECT * FROM \"Documents\" WHERE \"ProjectId\" = {project.Id} AND \"Path\" = {path} FOR UPDATE")
+                      .SingleOrDefaultAsync(ct)
                   ?? throw ApiException.NotFound("document_not_found", "Document not found");
         if (pre.IfMatchVersion is { } v)
         {
@@ -141,7 +150,6 @@ public sealed class DocumentService(DdmDbContext db, IBlobStore blobs)
             if (current.Number != v) throw ApiException.PreconditionFailed($"The document is at version {current.Number}, not {v}");
         }
 
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
         await db.Versions.Where(x => x.ItemType == ItemType.Document && x.ItemId == doc.Id).ExecuteDeleteAsync(ct);
         db.Documents.Remove(doc);
         db.Audit(caller, project.Id, "doc.delete", path);

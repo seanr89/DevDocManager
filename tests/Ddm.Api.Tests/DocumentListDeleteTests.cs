@@ -126,4 +126,44 @@ public class DocumentListDeleteTests(PostgresFixture pg) : ApiTestBase(pg)
         await PutDocAsync(alice, "shared", "a.md", "# x");
         Assert.Equal(HttpStatusCode.Forbidden, (await ClientFor("bob").DeleteAsync("/api/v1/projects/shared/docs/a.md")).StatusCode);
     }
+
+    private static HttpRequestMessage DeleteRequest(string path, string? ifMatch = null)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/projects/p/docs/{path}");
+        if (ifMatch is not null) request.Headers.TryAddWithoutValidation("If-Match", ifMatch);
+        return request;
+    }
+
+    [Fact]
+    public async Task An_update_racing_a_delete_never_returns_500()
+    {
+        var alice = await SeedAsync();
+        for (var round = 0; round < 40; round++)
+        {
+            var path = $"r{round}.md";
+            await PutDocAsync(alice, "p", path, "# v1");
+            var results = await Task.WhenAll(
+                PutDocAsync(alice, "p", path, $"# v2 {round}", ifMatch: "\"v1\""),
+                alice.SendAsync(DeleteRequest(path)));
+            Assert.All(results, r => Assert.NotEqual(HttpStatusCode.InternalServerError, r.StatusCode));
+        }
+    }
+
+    [Fact]
+    public async Task A_conditional_delete_never_removes_a_newer_version()
+    {
+        var alice = await SeedAsync();
+        for (var round = 0; round < 20; round++)
+        {
+            var path = $"r{round}.md";
+            await PutDocAsync(alice, "p", path, "# v1");
+            var results = await Task.WhenAll(
+                PutDocAsync(alice, "p", path, $"# v2 {round}", ifMatch: "\"v1\""),
+                alice.SendAsync(DeleteRequest(path, ifMatch: "\"v1\"")));
+            // Both were conditional on v1, so at most one may win.
+            Assert.False(results[0].StatusCode == HttpStatusCode.OK && results[1].StatusCode == HttpStatusCode.NoContent,
+                $"round {round}: the update to v2 and the delete of v1 both succeeded");
+            Assert.All(results, r => Assert.NotEqual(HttpStatusCode.InternalServerError, r.StatusCode));
+        }
+    }
 }
