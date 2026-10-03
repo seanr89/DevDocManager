@@ -1,4 +1,5 @@
 using System.Text;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
@@ -9,7 +10,18 @@ public static class AuthSetup
 {
     public static IServiceCollection AddDdmAuthentication(this IServiceCollection services)
     {
-        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
+        const string Smart = "Smart";
+        services.AddAuthentication(o =>
+            {
+                o.DefaultScheme = Smart;
+                o.DefaultChallengeScheme = Smart;
+            })
+            .AddPolicyScheme(Smart, "Bearer JWT or API token", o => o.ForwardDefaultSelector = ctx =>
+                ctx.Request.Headers.Authorization.ToString().StartsWith(ApiTokenHandler.HeaderPrefix, StringComparison.OrdinalIgnoreCase)
+                    ? ApiTokenHandler.SchemeName
+                    : JwtBearerDefaults.AuthenticationScheme)
+            .AddJwtBearer()
+            .AddScheme<AuthenticationSchemeOptions, ApiTokenHandler>(ApiTokenHandler.SchemeName, _ => { });
         services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
             .Configure<IConfiguration, IHostEnvironment>((o, config, env) =>
             {

@@ -1,4 +1,5 @@
 using Ddm.Api.Projects;
+using Ddm.Api.Tokens;
 
 namespace Ddm.Api.Tests.Infrastructure;
 
@@ -36,5 +37,19 @@ public abstract class ApiTestBase(PostgresFixture pg) : IAsyncLifetime
     {
         var r = await admin.PutAsJsonAsync($"/api/v1/projects/{slug}/members/{Uri.EscapeDataString(userId)}", new { role });
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+    }
+
+    protected static async Task<string> CreateTokenAsync(HttpClient admin, string slug, string scope, string name = "ci")
+    {
+        var r = await admin.PostAsJsonAsync($"/api/v1/projects/{slug}/tokens", new { name, scope });
+        Assert.Equal(HttpStatusCode.Created, r.StatusCode);
+        return (await r.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("secret").GetString()!;
+    }
+
+    protected HttpClient TokenClient(string secret)
+    {
+        var client = Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", secret);
+        return client;
     }
 }

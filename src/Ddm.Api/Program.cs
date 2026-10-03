@@ -2,6 +2,7 @@ using Ddm.Api.Common;
 using Ddm.Api.Data;
 using Ddm.Api.Identity;
 using Ddm.Api.Projects;
+using Ddm.Api.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
@@ -32,6 +33,7 @@ v1.MapMe();
 v1.MapProjects();
 v1.MapMembers();
 v1.MapAudit();
+v1.MapTokens();
 
 app.Run();
 
