@@ -18,6 +18,7 @@ builder.Services.AddScoped<ProjectAuthorizer>();
 builder.Services.AddDdmStorage(builder.Configuration);
 builder.Services.AddScoped<DocumentService>();
 builder.Services.AddSingleton<MarkdownRenderer>();
+builder.Services.AddOpenApi();
 
 var app = builder.Build();
 app.MigrateIfConfigured();
@@ -32,6 +33,7 @@ app.EnsureAuthConfigured();
 // --- endpoints
 app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
 app.MapReadiness();
+app.MapOpenApi("/api/v1/openapi.json");
 
 var v1 = app.MapGroup("/api/v1").RequireAuthorization();
 v1.MapMe();
