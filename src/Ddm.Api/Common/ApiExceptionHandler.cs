@@ -15,18 +15,20 @@ public sealed class ApiExceptionHandler(IProblemDetailsService problems) : IExce
     private async ValueTask<bool> WriteAsync(HttpContext ctx, Exception ex, int status, string code, string title, string? detail)
     {
         ctx.Response.StatusCode = status;
-        return await problems.TryWriteAsync(new ProblemDetailsContext
+        var problem = new ProblemDetails
         {
-            HttpContext = ctx,
-            Exception = ex,
-            ProblemDetails = new ProblemDetails
-            {
-                Status = status,
-                Title = title,
-                Detail = detail,
-                Type = $"urn:ddm:problem:{code}",
-                Extensions = { ["code"] = code },
-            },
-        });
+            Status = status,
+            Title = title,
+            Detail = detail,
+            Type = $"urn:ddm:problem:{code}",
+            Extensions = { ["code"] = code },
+        };
+        if (await problems.TryWriteAsync(new ProblemDetailsContext { HttpContext = ctx, Exception = ex, ProblemDetails = problem }))
+            return true;
+
+        // The default writer honours Accept and declines (e.g. Accept: application/xml), which would send an
+        // empty body. Errors are always problem+json with a stable code, so write it regardless.
+        await Results.Problem(problem).ExecuteAsync(ctx);
+        return true;
     }
 }

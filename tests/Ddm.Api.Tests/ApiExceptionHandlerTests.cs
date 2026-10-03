@@ -7,10 +7,11 @@ namespace Ddm.Api.Tests;
 
 public class ApiExceptionHandlerTests
 {
-    private static async Task<(bool Handled, int Status, string? ContentType, JsonElement Body)> RunAsync(Exception ex)
+    private static async Task<(bool Handled, int Status, string? ContentType, JsonElement Body)> RunAsync(Exception ex, string? accept = null)
     {
         var services = new ServiceCollection().AddLogging().AddDdmProblemDetails().BuildServiceProvider();
         var ctx = new DefaultHttpContext { RequestServices = services };
+        if (accept is not null) ctx.Request.Headers.Accept = accept;
         ctx.Response.Body = new MemoryStream();
         var handler = new ApiExceptionHandler(services.GetRequiredService<IProblemDetailsService>());
         var handled = await handler.TryHandleAsync(ctx, ex, CancellationToken.None);
@@ -36,6 +37,16 @@ public class ApiExceptionHandlerTests
     {
         var r = await RunAsync(ApiException.BadRequest("validation_failed", "Invalid", "name is required"));
         Assert.Equal("name is required", r.Body.GetProperty("detail").GetString());
+    }
+
+    [Fact]
+    public async Task Problem_json_is_written_even_when_the_client_accepts_only_other_types()
+    {
+        var r = await RunAsync(new ApiException(406, "not_acceptable", "Not acceptable"), accept: "application/xml");
+        Assert.True(r.Handled);
+        Assert.Equal(406, r.Status);
+        Assert.StartsWith("application/problem+json", r.ContentType);
+        Assert.Equal("not_acceptable", r.Body.GetProperty("code").GetString());
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using Ddm.Api.Projects;
 using Ddm.Api.Tokens;
+using Npgsql;
 
 namespace Ddm.Api.Tests.Infrastructure;
 
@@ -7,10 +8,24 @@ namespace Ddm.Api.Tests.Infrastructure;
 [Collection("db")]
 public abstract class ApiTestBase(PostgresFixture pg) : IAsyncLifetime
 {
+    private string _connectionString = null!;
+
     protected DdmApiFactory Factory { get; private set; } = null!;
 
-    public async Task InitializeAsync() => Factory = new DdmApiFactory(await pg.CreateDatabaseAsync());
-    public async Task DisposeAsync() => await Factory.DisposeAsync();
+    public async Task InitializeAsync()
+    {
+        _connectionString = await pg.CreateDatabaseAsync();
+        Factory = new DdmApiFactory(_connectionString);
+    }
+
+    public async Task DisposeAsync()
+    {
+        await Factory.DisposeAsync();
+        // Npgsql pools outlive the app; without this, idle connections from every test database pile up
+        // until Postgres refuses new clients (53300).
+        using var conn = new NpgsqlConnection(_connectionString);
+        NpgsqlConnection.ClearPool(conn);
+    }
 
     protected HttpClient Anonymous() => Factory.CreateClient();
 
@@ -51,5 +66,22 @@ public abstract class ApiTestBase(PostgresFixture pg) : IAsyncLifetime
         var client = Factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new("Bearer", secret);
         return client;
+    }
+
+    protected static Task<HttpResponseMessage> PutDocAsync(
+        HttpClient client, string slug, string path, string markdown, string? ifMatch = null, string? message = null, string? ifNoneMatch = null)
+    {
+        var url = $"/api/v1/projects/{slug}/docs/{path}" + (message is null ? "" : $"?message={Uri.EscapeDataString(message)}");
+        var request = new HttpRequestMessage(HttpMethod.Put, url) { Content = new StringContent(markdown, Encoding.UTF8, "text/markdown") };
+        if (ifMatch is not null) request.Headers.TryAddWithoutValidation("If-Match", ifMatch);
+        if (ifNoneMatch is not null) request.Headers.TryAddWithoutValidation("If-None-Match", ifNoneMatch);
+        return client.SendAsync(request);
+    }
+
+    protected static Task<HttpResponseMessage> GetDocAsync(HttpClient client, string slug, string path, string? accept = null)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/projects/{slug}/docs/{path}");
+        if (accept is not null) request.Headers.TryAddWithoutValidation("Accept", accept);
+        return client.SendAsync(request);
     }
 }

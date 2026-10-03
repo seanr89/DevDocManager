@@ -1,5 +1,6 @@
 using Ddm.Api.Common;
 using Ddm.Api.Data;
+using Ddm.Api.Documents;
 using Ddm.Api.Identity;
 using Ddm.Api.Projects;
 using Ddm.Api.Storage;
@@ -15,6 +16,8 @@ builder.Services.AddDdmData();
 builder.Services.AddDdmAuthentication();
 builder.Services.AddScoped<ProjectAuthorizer>();
 builder.Services.AddDdmStorage(builder.Configuration);
+builder.Services.AddScoped<DocumentService>();
+builder.Services.AddSingleton<MarkdownRenderer>();
 
 var app = builder.Build();
 app.MigrateIfConfigured();
@@ -36,6 +39,7 @@ v1.MapProjects();
 v1.MapMembers();
 v1.MapAudit();
 v1.MapTokens();
+v1.MapDocuments();
 
 app.Run();
 
