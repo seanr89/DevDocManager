@@ -1,14 +1,13 @@
-using Microsoft.AspNetCore.Hosting;
+using Ddm.Api.Tests.Infrastructure;
 
 namespace Ddm.Api.Tests;
 
-public class ProblemDetailsTests(WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>
+public class ProblemDetailsTests(PostgresFixture pg) : ApiTestBase(pg)
 {
     [Fact]
     public async Task Unknown_routes_return_problem_json_with_a_stable_code()
     {
-        var client = factory.WithWebHostBuilder(b => b.UseEnvironment("Testing")).CreateClient();
-        var response = await client.GetAsync("/api/v1/nope");
+        var response = await Anonymous().GetAsync("/api/v1/nope");
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();

@@ -10,4 +10,11 @@ public abstract class ApiTestBase(PostgresFixture pg) : IAsyncLifetime
     public async Task DisposeAsync() => await Factory.DisposeAsync();
 
     protected HttpClient Anonymous() => Factory.CreateClient();
+
+    protected HttpClient ClientFor(string userId)
+    {
+        var client = Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", TestAuth.TokenFor(userId));
+        return client;
+    }
 }

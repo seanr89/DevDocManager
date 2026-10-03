@@ -13,6 +13,9 @@ public sealed class DdmApiFactory(string connectionString, bool migrate = true, 
         {
             ["ConnectionStrings:Ddm"] = connectionString,
             ["Database:MigrateOnStart"] = migrate ? "true" : "false",
+            ["Auth:DevSigningKey"] = TestAuth.SigningKey,
+            ["Auth:Issuer"] = TestAuth.Issuer,
+            ["Auth:Audience"] = TestAuth.Audience,
         }));
     }
 }
