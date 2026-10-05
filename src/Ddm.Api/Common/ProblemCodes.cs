@@ -14,6 +14,7 @@ public static class ProblemCodes
         412 => "precondition_failed",
         413 => "payload_too_large",
         415 => "unsupported_media_type",
+        422 => "unprocessable_content",
         428 => "precondition_required",
         >= 500 => "internal_error",
         _ => $"http_{status}",

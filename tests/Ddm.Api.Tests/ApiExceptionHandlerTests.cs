@@ -65,10 +65,23 @@ public class ApiExceptionHandlerTests
         Assert.False(r.Handled);
     }
 
+
+    [Fact]
+    public async Task Extensions_such_as_an_errors_list_are_written()
+    {
+        var r = await RunAsync(ApiException.Unprocessable("invalid_spec", "Invalid", [new { pointer = "/a", line = 3 }]));
+        Assert.Equal(422, r.Status);
+        Assert.Equal("invalid_spec", r.Body.GetProperty("code").GetString());
+        var e = r.Body.GetProperty("errors")[0];
+        Assert.Equal("/a", e.GetProperty("pointer").GetString());
+        Assert.Equal(3, e.GetProperty("line").GetInt32());
+    }
+
     [Theory]
     [InlineData(401, "unauthenticated")]
     [InlineData(404, "not_found")]
     [InlineData(412, "precondition_failed")]
+    [InlineData(422, "unprocessable_content")]
     [InlineData(428, "precondition_required")]
     [InlineData(500, "internal_error")]
     [InlineData(418, "http_418")]
