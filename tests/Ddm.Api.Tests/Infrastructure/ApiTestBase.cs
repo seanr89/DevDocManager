@@ -1,6 +1,9 @@
 using System.Security.Cryptography;
+using Ddm.Api.Data;
 using Ddm.Api.Projects;
 using Ddm.Api.Tokens;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 
 namespace Ddm.Api.Tests.Infrastructure;
@@ -26,6 +29,13 @@ public abstract class ApiTestBase(PostgresFixture pg) : IAsyncLifetime
         // until Postgres refuses new clients (53300).
         using var conn = new NpgsqlConnection(_connectionString);
         NpgsqlConnection.ClearPool(conn);
+    }
+
+    /// <summary>Project ids are not part of the API surface, but signed content URLs are built from them.</summary>
+    protected async Task<Guid> ProjectIdAsync(string slug)
+    {
+        using var scope = Factory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<DdmDbContext>().Projects.Where(p => p.Slug == slug).Select(p => p.Id).SingleAsync();
     }
 
     protected HttpClient Anonymous() => Factory.CreateClient();

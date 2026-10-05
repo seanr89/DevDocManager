@@ -23,6 +23,7 @@ builder.Services.AddScoped<DocumentService>();
 builder.Services.AddSingleton<MarkdownRenderer>();
 builder.Services.AddScoped<TagService>();
 builder.Services.AddDdmAssets(builder.Configuration);
+builder.Services.AddDdmContent(builder.Configuration);
 builder.Services.AddOpenApi();
 builder.Services.AddOpenTelemetry().WithMetrics(m => m.AddAspNetCoreInstrumentation().AddPrometheusExporter());
 
@@ -35,12 +36,14 @@ app.UseStatusCodePages();
 app.UseAuthentication();
 app.UseAuthorization();
 app.EnsureAuthConfigured();
+app.EnsureContentConfigured();
 
 // --- endpoints
 app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
 app.MapReadiness();
 app.MapOpenApi("/api/v1/openapi.json");
 app.MapPrometheusScrapingEndpoint(); // /metrics: keep off the public ingress
+app.MapContent();
 
 var v1 = app.MapGroup("/api/v1").RequireAuthorization();
 v1.MapMe();
