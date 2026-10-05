@@ -80,6 +80,8 @@ public static partial class PublishPlanner
         string text;
         try { text = new UTF8Encoding(false, true).GetString(content); }
         catch (DecoderFallbackException) { return false; }
+        // Windows editors prepend a UTF-8 byte order mark, which GetString keeps as U+FEFF; it is not part of the content.
+        text = text.TrimStart('\uFEFF');
         if (ext != ".json") return TopLevelYamlOpenApiKey().IsMatch(text);
         try
         {

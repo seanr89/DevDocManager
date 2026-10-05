@@ -78,6 +78,15 @@ public class PublishPlannerTests
     public void Classifies_files(string path, string content, ItemType expected) =>
         Assert.Equal(expected, PublishPlanner.Classify(path, Encoding.UTF8.GetBytes(content)));
 
+    [Theory]
+    [InlineData("api.yaml", "openapi: 3.0.3\ninfo: {}\n", ItemType.Spec)]
+    [InlineData("api.json", "{\"info\": {}, \"openapi\": \"3.0.0\"}", ItemType.Spec)]
+    [InlineData("api.json", "{\"openapi\": ", ItemType.Spec)]
+    [InlineData("config.yaml", "name: x\nnested:\n  openapi: 3\n", ItemType.Asset)]
+    [InlineData("a.md", "# x", ItemType.Document)]
+    public void A_utf8_byte_order_mark_does_not_change_classification(string path, string content, ItemType expected) =>
+        Assert.Equal(expected, PublishPlanner.Classify(path, [0xEF, 0xBB, 0xBF, .. Encoding.UTF8.GetBytes(content)]));
+
     [Theory] [InlineData("app.exe")] [InlineData("Makefile")]
     public void Unsupported_files_classify_as_null(string path) => Assert.Null(PublishPlanner.Classify(path, [1]));
 
