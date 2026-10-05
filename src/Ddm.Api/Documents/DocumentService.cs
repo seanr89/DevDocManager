@@ -5,14 +5,18 @@ using Ddm.Api.Data;
 using Ddm.Api.Domain;
 using Ddm.Api.Identity;
 using Ddm.Api.Storage;
+using Ddm.Api.Tags;
 using Microsoft.EntityFrameworkCore;
 
 namespace Ddm.Api.Documents;
 
 public sealed record WriteResult(Guid DocumentId, string Path, ParsedMarkdown Parsed, ContentVersion Version, bool Created, bool Changed);
 
-/// <summary>A validated document body, ready to store. Preparing touches neither the database nor blob storage.</summary>
-public sealed record PreparedDocument(string Path, byte[] Bytes, string Sha256, ParsedMarkdown Parsed)
+/// <summary>
+/// A validated document body, ready to store. Preparing touches neither the database nor blob storage.
+/// <c>Tags</c> is the front matter's tag set, or null when it has no tags key.
+/// </summary>
+public sealed record PreparedDocument(string Path, byte[] Bytes, string Sha256, ParsedMarkdown Parsed, IReadOnlyList<string>? Tags)
 {
     public string BlobKey(Guid projectId) => $"projects/{projectId:N}/docs/{Sha256}.md";
 }
@@ -23,7 +27,7 @@ public sealed record DocumentState(Document Doc, ContentVersion? Current)
     public bool IsLive => Doc.DeletedAt is null;
 }
 
-public sealed class DocumentService(DdmDbContext db, IBlobStore blobs)
+public sealed class DocumentService(DdmDbContext db, IBlobStore blobs, TagService tags)
 {
     public const int MaxBytes = 1_048_576;
     public static readonly UTF8Encoding StrictUtf8 = new(false, true);
@@ -36,7 +40,7 @@ public sealed class DocumentService(DdmDbContext db, IBlobStore blobs)
         try { text = StrictUtf8.GetString(bytes); }
         catch (DecoderFallbackException) { throw ApiException.BadRequest("invalid_encoding", "Document content must be valid UTF-8"); }
         var parsed = FrontMatter.Parse(text, path);
-        return new(path, bytes, Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), parsed);
+        return new(path, bytes, Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), parsed, TagName.FromFrontMatter(parsed.FrontMatterJson));
     }
 
     public Task UploadAsync(Project project, PreparedDocument prepared, CancellationToken ct) =>
@@ -76,7 +80,7 @@ public sealed class DocumentService(DdmDbContext db, IBlobStore blobs)
     /// Stages the next version, creating, updating or reviving the row. Does not save or upload: the caller
     /// has checked preconditions and stored the blob. Reviving continues the version numbering.
     /// </summary>
-    public Task<WriteResult> StageAsync(
+    public async Task<WriteResult> StageAsync(
         Caller caller, Project project, PreparedDocument prepared, DocumentState? state, string? message, CancellationToken ct)
     {
         var doc = state?.Doc ?? new Document { ProjectId = project.Id, Path = prepared.Path };
@@ -94,7 +98,9 @@ public sealed class DocumentService(DdmDbContext db, IBlobStore blobs)
         if (state is null) db.Documents.Add(doc);
         db.Versions.Add(version);
         db.Audit(caller, project.Id, created ? "doc.create" : "doc.update", prepared.Path);
-        return Task.FromResult(new WriteResult(doc.Id, prepared.Path, prepared.Parsed, version, created, Changed: true));
+        // Front matter owns the tag set when it has a tags key; otherwise API-set tags are left alone.
+        if (prepared.Tags is { } names) await tags.StageSetAsync(project.Id, new ItemRef(ItemType.Document, doc.Id), names, ct);
+        return new WriteResult(doc.Id, prepared.Path, prepared.Parsed, version, created, Changed: true);
     }
 
     /// <summary>Tombstones a tracked, live document. Does not save.</summary>

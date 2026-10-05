@@ -23,4 +23,8 @@ public class DocRouteTests
 
     [Fact] public void Anything_else_falls_through_to_path_validation() =>
         Assert.Equal(new DocRoute.Current("a.md/versions/x"), DocRoute.Parse("a.md/versions/x"));
+
+    [Fact] public void Tags() => Assert.Equal(new DocRoute.Tags("guides/setup.md"), DocRoute.Parse("guides/setup.md/tags"));
+    [Fact] public void A_document_named_tags_is_still_a_document() =>
+        Assert.Equal(new DocRoute.Current("a/tags.md"), DocRoute.Parse("a/tags.md"));
 }
