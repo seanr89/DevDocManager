@@ -272,12 +272,32 @@ public class PublishTests(PostgresFixture pg) : ApiTestBase(pg)
     }
 
     [Fact]
-    public async Task A_byte_order_mark_on_a_spec_is_a_validation_error_not_a_server_error()
+    public async Task Specs_with_a_byte_order_mark_publish_like_any_other_and_keep_their_bytes()
     {
         var alice = await AliceAsync();
-        var r = await PublishAsync(alice, "p", Folder(("api.yaml", [0xEF, 0xBB, 0xBF, .. T(Spec)])));
+        byte[] bom = [0xEF, 0xBB, 0xBF];
+        byte[] yaml = [.. bom, .. T(Spec)];
+        byte[] json = [.. bom, .. T("{\"openapi\":\"3.1.0\",\"info\":{\"title\":\"J\",\"version\":\"1\"},\"paths\":{}}")];
+        var result = await OkAsync(PublishAsync(alice, "p", Folder(("api.yaml", yaml), ("j.json", json))));
+        Assert.Equal(["api", "j"], result.Created.Select(i => i.Key).Order());
+        Assert.Equal(yaml, await (await alice.GetAsync("/api/v1/projects/p/specs/api")).Content.ReadAsByteArrayAsync());
+        Assert.Equal(json, await (await alice.GetAsync("/api/v1/projects/p/specs/j")).Content.ReadAsByteArrayAsync());
+    }
+
+    [Fact]
+    public async Task An_over_long_openapi_version_is_a_publish_error_not_a_server_error_and_names_the_problem()
+    {
+        var alice = await AliceAsync();
+        var r = await PublishAsync(alice, "p", Folder(("good.md", T("# good")), ("api.yaml", T(Spec.Replace("3.0.3", "\"3.0.300000000000000000\"")))));
         Assert.Equal((HttpStatusCode)422, r.StatusCode);
-        Assert.Equal("publish_invalid", await ProblemCodeAsync(r));
+        var body = await r.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("publish_invalid", body.GetProperty("code").GetString());
+        var error = Assert.Single(body.GetProperty("errors").EnumerateArray());
+        Assert.Equal("api.yaml", error.GetProperty("path").GetString());
+        Assert.Equal("unsupported_openapi_version", error.GetProperty("code").GetString());
+        Assert.Contains("found '3.0.300000000000000000'", error.GetProperty("message").GetString());
+        Assert.Equal(1, error.GetProperty("line").GetInt32());
+        Assert.Equal(0, Factory.Blobs.Count);
     }
 
     [Fact]

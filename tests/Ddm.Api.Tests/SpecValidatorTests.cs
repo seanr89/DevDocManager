@@ -52,6 +52,49 @@ public class SpecValidatorTests
     }
 
     [Fact]
+    public async Task A_yaml_spec_with_a_leading_byte_order_mark_is_accepted()
+    {
+        var spec = await Validate("\uFEFF" + Pets);
+        Assert.Equal(("yaml", "3.0.3", "Pets"), (spec.Format, spec.OpenApiVersion, spec.Title));
+    }
+
+    [Fact]
+    public async Task A_json_spec_with_a_leading_byte_order_mark_is_accepted()
+    {
+        var spec = await Validate("\uFEFF{\"openapi\":\"3.1.0\",\"info\":{\"title\":\"J\",\"version\":\"1\"},\"paths\":{}}");
+        Assert.Equal(("json", "3.1.0", "J"), (spec.Format, spec.OpenApiVersion, spec.Title));
+    }
+
+    [Theory]
+    [InlineData("3.0.300000000000000000")] // longer than the varchar(16) column
+    [InlineData("3.0.1234567")]
+    [InlineData("3.0.\u0663")] // an Arabic-Indic digit: \d matches it, the version gate must not
+    public async Task Openapi_versions_with_an_unbounded_or_non_ascii_patch_are_unsupported(string version)
+    {
+        var (code, _) = await FailAsync($"openapi: \"{version}\"\ninfo: {{title: x, version: '1'}}\npaths: {{}}\n");
+        Assert.Equal("unsupported_openapi_version", code);
+    }
+
+    [Theory]
+    [InlineData("3.0.3")]
+    [InlineData("3.1.0")]
+    [InlineData("3.0.123456")]
+    public async Task Ordinary_openapi_versions_still_pass(string version)
+    {
+        var spec = await Validate($"openapi: {version}\ninfo: {{title: x, version: '1'}}\npaths: {{}}\n");
+        Assert.Equal(version, spec.OpenApiVersion);
+    }
+
+    [Fact]
+    public async Task An_unsupported_version_reports_its_errors_as_spec_errors()
+    {
+        var ex = await Assert.ThrowsAsync<ApiException>(() => Validate("openapi: 2.0\ninfo: {title: x, version: '1'}\npaths: {}\n"));
+        var error = Assert.Single(Assert.IsAssignableFrom<IEnumerable<SpecError>>(ex.Extensions!["errors"]));
+        Assert.Equal(1, error.Line);
+        Assert.Contains("found '2.0'", error.Message);
+    }
+
+    [Fact]
     public async Task Swagger_2_is_unsupported()
     {
         var (code, errors) = await FailAsync("swagger: '2.0'\ninfo: {title: x, version: '1'}\npaths: {}\n");

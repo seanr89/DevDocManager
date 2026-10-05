@@ -121,6 +121,38 @@ public class SpecTests(PostgresFixture pg) : ApiTestBase(pg)
     }
 
     [Fact]
+    public async Task A_spec_with_a_byte_order_mark_is_accepted_and_stored_byte_for_byte()
+    {
+        var alice = await AliceAsync();
+        var yaml = await PutSpecAsync(alice, "p", "pets", "\uFEFF" + V1);
+        Assert.Equal(HttpStatusCode.Created, yaml.StatusCode);
+        Assert.Equal("Pets", (await ReadAsync<SpecDto>(yaml)).Title);
+        Assert.Equal(Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(V1)), await (await alice.GetAsync("/api/v1/projects/p/specs/pets")).Content.ReadAsByteArrayAsync());
+
+        var json = "\uFEFF{\"openapi\":\"3.1.0\",\"info\":{\"title\":\"J\",\"version\":\"1\"},\"paths\":{}}";
+        var r = await PutSpecAsync(alice, "p", "j", json, mediaType: "application/json");
+        Assert.Equal(HttpStatusCode.Created, r.StatusCode);
+        Assert.Equal("json", (await ReadAsync<SpecDto>(r)).Format);
+    }
+
+    [Theory]
+    [InlineData("3.0.300000000000000000")]
+    [InlineData("3.0.\u0663")]
+    public async Task An_over_long_or_non_ascii_openapi_version_is_422_not_500(string version)
+    {
+        var alice = await AliceAsync();
+        var r = await PutSpecAsync(alice, "p", "pets", V1.Replace("3.0.3", $"\"{version}\""));
+        Assert.Equal((HttpStatusCode)422, r.StatusCode);
+        var body = await JsonAsync(r);
+        Assert.Equal("unsupported_openapi_version", body.GetProperty("code").GetString());
+        var error = body.GetProperty("errors")[0];
+        Assert.Equal("#/openapi", error.GetProperty("pointer").GetString());
+        Assert.Equal(1, error.GetProperty("line").GetInt32());
+        Assert.Contains("found '", error.GetProperty("message").GetString());
+        Assert.Equal(0, Factory.Blobs.Count);
+    }
+
+    [Fact]
     public async Task Bad_names_and_media_types_are_refused()
     {
         var alice = await AliceAsync();

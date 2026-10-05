@@ -24,7 +24,8 @@ public static partial class SpecValidator
     public const int MaxDepth = 64;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
-    [GeneratedRegex(@"^3\.[01]\.\d+\z")]
+    // ASCII digits only and a bounded patch: the version is stored in a varchar(16) column.
+    [GeneratedRegex(@"^3\.[01]\.[0-9]{1,6}\z")]
     private static partial Regex SupportedVersion();
 
     public static string FormatOf(string text) => text.TrimStart('﻿', ' ', '\t', '\r', '\n').StartsWith('{') ? "json" : "yaml";
@@ -34,6 +35,13 @@ public static partial class SpecValidator
         string text;
         try { text = StrictUtf8.GetString(bytes); }
         catch (DecoderFallbackException) { throw ApiException.BadRequest("invalid_encoding", "Specs must be valid UTF-8"); }
+        // A leading BOM is legal (Windows editors write one). Parse without it; callers keep hashing and storing the original bytes.
+        var parseBytes = bytes;
+        if (text.StartsWith('\uFEFF'))
+        {
+            text = text[1..];
+            parseBytes = bytes[3..]; // U+FEFF is EF BB BF in UTF-8
+        }
         var format = FormatOf(text);
 
         if (SafeYaml.Check(text, MaxDepth) is { } problem) throw Invalid([new(null, problem.Line, problem.Column, problem.Message)]);
@@ -50,8 +58,11 @@ public static partial class SpecValidator
 
         var versionNode = map.Children.FirstOrDefault(kv => kv.Key is YamlScalarNode { Value: "openapi" }).Value as YamlScalarNode;
         if (versionNode?.Value is not { } version || !SupportedVersion().IsMatch(version))
-            throw ApiException.Unprocessable("unsupported_openapi_version", "Only OpenAPI 3.0 and 3.1 are supported",
-                [At(versionNode ?? root, "#/openapi", $"Expected openapi: 3.0.x or 3.1.x, found '{versionNode?.Value ?? "nothing"}'")]);
+        {
+            IReadOnlyList<SpecError> unsupported =
+                [At(versionNode ?? root, "#/openapi", $"Expected openapi: 3.0.x or 3.1.x, found '{versionNode?.Value ?? "nothing"}'")];
+            throw ApiException.Unprocessable("unsupported_openapi_version", "Only OpenAPI 3.0 and 3.1 are supported", unsupported);
+        }
 
         var errors = ExternalRefs(root, "#").ToList();
         if (errors.Count > 0) throw Invalid(errors);
@@ -61,7 +72,7 @@ public static partial class SpecValidator
         OpenApiDocument? doc;
         try
         {
-            using var ms = new MemoryStream(bytes, writable: false);
+            using var ms = new MemoryStream(parseBytes, writable: false);
             var read = await OpenApiDocument.LoadAsync(ms, format, settings, ct);
             doc = read.Document;
             errors = (read.Diagnostic?.Errors ?? []).Select(e => ErrorAt(root, e.Pointer, e.Message)).ToList();
