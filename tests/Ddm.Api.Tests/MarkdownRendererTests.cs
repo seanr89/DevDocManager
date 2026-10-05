@@ -37,4 +37,31 @@ public class MarkdownRendererTests
     [Fact]
     public void Safe_links_survive() =>
         Assert.Contains("href=\"https://example.com\"", Renderer.ToHtml("[ok](https://example.com)"));
+
+    [Fact]
+    public void Image_paths_are_resolved_against_the_document_folder()
+    {
+        var paths = Renderer.ImagePaths(
+            "![a](img/a.png) ![b](../logo.svg) ![c](https://x.example/c.png) ![d](../../escape.png) ![e](notes.md)", "guides/setup.md");
+        Assert.True(paths.SetEquals(["guides/img/a.png", "logo.svg"]));
+    }
+
+    [Fact]
+    public void Resolved_images_get_their_urls_and_missing_ones_are_marked()
+    {
+        var html = Renderer.ToHtml("![a](img/a.png) ![b](img/missing.png) ![c](https://x.example/c.png)", "guides/setup.md",
+            new Dictionary<string, string> { ["guides/img/a.png"] = "https://content.example/content/p/abc?exp=1&sig=s" });
+        Assert.Contains("src=\"https://content.example/content/p/abc?exp=1&amp;sig=s\"", html);
+        Assert.Contains("class=\"ddm-missing-asset\"", html);
+        Assert.Contains("src=\"https://x.example/c.png\"", html);
+    }
+
+    [Fact]
+    public void Resolution_does_not_weaken_sanitizing()
+    {
+        var html = Renderer.ToHtml("![x](data:image/svg+xml;base64,PHN2Zz4=) <script>alert(1)</script>", "a.md",
+            new Dictionary<string, string>());
+        Assert.DoesNotContain("data:", html);
+        Assert.DoesNotContain("<script", html);
+    }
 }

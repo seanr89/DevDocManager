@@ -6,6 +6,7 @@ public static class AssetSetup
     {
         services.Configure<AssetOptions>(config.GetSection("Assets"));
         services.AddScoped<AssetService>();
+        services.AddScoped<AssetResolver>();
         return services;
     }
 }

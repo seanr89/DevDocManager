@@ -32,4 +32,31 @@ public static partial class ContentPath
         if (!prefix.EndsWith('/')) return "A folder prefix must end with '/'";
         return ValidateSegments(prefix[..^1]);
     }
+
+    /// <summary>
+    /// Resolves a relative reference (such as an image URL in markdown) against the folder of <paramref name="fromPath"/>.
+    /// Returns null for anything that is not a plain relative path: a scheme, a leading '/', a query or fragment,
+    /// a backslash, or '..' climbing above the project root. The caller still validates the result.
+    /// </summary>
+    public static string? Resolve(string fromPath, string reference)
+    {
+        if (reference.Length == 0 || reference.StartsWith('/') || reference.IndexOfAny([':', '?', '#', '\\']) >= 0) return null;
+        var segments = new List<string>(fromPath.Split('/')[..^1]);
+        foreach (var part in Uri.UnescapeDataString(reference).Split('/'))
+        {
+            switch (part)
+            {
+                case "" or ".":
+                    continue;
+                case "..":
+                    if (segments.Count == 0) return null;
+                    segments.RemoveAt(segments.Count - 1);
+                    break;
+                default:
+                    segments.Add(part);
+                    break;
+            }
+        }
+        return segments.Count == 0 ? null : string.Join('/', segments);
+    }
 }

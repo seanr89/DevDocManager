@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text;
+using Ddm.Api.Assets;
 using Ddm.Api.Common;
 using Ddm.Api.Data;
 using Ddm.Api.Domain;
@@ -41,7 +42,7 @@ public static class DocumentEndpoints
 
     private static async Task<IResult> GetAsync(
         string slug, string rest, string? cursor, int? limit, HttpContext http, ClaimsPrincipal user,
-        ProjectAuthorizer authz, DocumentService docs, MarkdownRenderer renderer, TagService tags, CancellationToken ct)
+        ProjectAuthorizer authz, DocumentService docs, MarkdownRenderer renderer, TagService tags, AssetResolver assets, CancellationToken ct)
     {
         var access = await authz.RequireAsync(Caller.From(user), slug, Role.Reader, ct);
         switch (DocRoute.Parse(rest))
@@ -50,7 +51,7 @@ public static class DocumentEndpoints
             {
                 var path = DocumentPath.Require(c.Path);
                 var (_, version) = await docs.GetCurrentAsync(access.Project, path, ct);
-                return await RespondAsync(http, docs, renderer, tags, path, version, ct);
+                return await RespondAsync(http, docs, renderer, tags, access.Project, assets, path, version, ct);
             }
             case DocRoute.History h:
                 return Results.Ok(await docs.ListVersionsAsync(access.Project, DocumentPath.Require(h.Path), limit, cursor, ct));
@@ -58,7 +59,7 @@ public static class DocumentEndpoints
             {
                 var path = DocumentPath.Require(s.Path);
                 var version = await docs.GetVersionAsync(access.Project, path, s.Number, ct);
-                return await RespondAsync(http, docs, renderer, tags, path, version, ct);
+                return await RespondAsync(http, docs, renderer, tags, access.Project, assets, path, version, ct);
             }
             default:
                 throw ApiException.NotFound("not_found", "No such route");
@@ -189,7 +190,8 @@ public static class DocumentEndpoints
     }
 
     internal static async Task<IResult> RespondAsync(
-        HttpContext http, DocumentService docs, MarkdownRenderer renderer, TagService tags, string path, ContentVersion version, CancellationToken ct)
+        HttpContext http, DocumentService docs, MarkdownRenderer renderer, TagService tags, Project project, AssetResolver assets,
+        string path, ContentVersion version, CancellationToken ct)
     {
         var format = ContentNegotiation.Choose(http.Request.GetTypedHeaders().Accept)
             ?? throw new ApiException(406, "not_acceptable", "Not acceptable", "Supported: text/markdown, text/html, application/json");
@@ -201,7 +203,8 @@ public static class DocumentEndpoints
         var parsed = FrontMatter.Parse(text, path);
         return format switch
         {
-            DocFormat.Html => Results.Text(renderer.ToHtml(parsed.Body), "text/html; charset=utf-8"),
+            DocFormat.Html => Results.Text(renderer.ToHtml(parsed.Body, path,
+                await assets.UrlsForAsync(project, renderer.ImagePaths(parsed.Body, path), ct)), "text/html; charset=utf-8"),
             DocFormat.Json => Results.Ok(DocumentDto.From(path, parsed, version,
                 await tags.TagsForAsync(new ItemRef(ItemType.Document, version.ItemId), ct))),
             _ => Results.Text(text, "text/markdown; charset=utf-8"),
