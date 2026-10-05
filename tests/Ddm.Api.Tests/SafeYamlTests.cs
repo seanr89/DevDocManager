@@ -32,4 +32,12 @@ public class SafeYamlTests
         Assert.NotNull(p);
         Assert.NotNull(p!.Line);
     }
+
+    [Fact]
+    public void An_unterminated_flow_mapping_is_a_problem_not_an_exception()
+    {
+        var p = SafeYaml.Check("openapi: 3.0.3\ninfo: {title: t, version: '1'\npaths: {}\n", 10);
+        Assert.NotNull(p);
+        Assert.True(p!.Line >= 2);
+    }
 }

@@ -13,6 +13,7 @@ public static class SafeYaml
 {
     public static YamlProblem? Check(string yaml, int maxDepth)
     {
+        var last = new Mark();
         try
         {
             var parser = new Parser(new StringReader(yaml));
@@ -20,6 +21,7 @@ public static class SafeYaml
             while (parser.MoveNext())
             {
                 var e = parser.Current!;
+                last = e.End;
                 switch (e)
                 {
                     case AnchorAlias:
@@ -34,6 +36,9 @@ public static class SafeYaml
             return null;
         }
         catch (YamlException ex) { return At(ex.Start, ex.Message); }
+        // YamlDotNet's scanner throws a bare InvalidOperationException (no position) for some unterminated flow
+        // collections, so report the end of the last event it did read.
+        catch (InvalidOperationException) { return At(last, "YAML syntax error: unterminated or malformed flow collection"); }
     }
 
     private static YamlProblem At(Mark mark, string message) =>
