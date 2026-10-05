@@ -33,8 +33,8 @@ public static class DocumentEndpoints
         if (await docs.ExistsAsync(access.Project, path, ct))
             throw ApiException.Conflict("document_exists", $"A document already exists at {path}");
 
-        var result = await docs.WriteAsync(caller, access.Project, path, Encoding.UTF8.GetBytes(body.Content), body.Message,
-            new WritePrecondition(null, false, IfNoneMatchAny: true), requireIfMatch: false, ct);
+        var result = await docs.WriteAsync(caller, access.Project, DocumentService.Prepare(path, Encoding.UTF8.GetBytes(body.Content)),
+            body.Message, new WritePrecondition(null, false, IfNoneMatchAny: true), requireIfMatch: false, ct);
         return Created(http, slug, result);
     }
 
@@ -75,12 +75,12 @@ public static class DocumentEndpoints
         var message = MessageFrom(http.Request);
         var bytes = await ReadBodyAsync(http.Request, ct);
 
-        var result = await docs.WriteAsync(caller, access.Project, path, bytes, message, pre, requireIfMatch: true, ct);
+        var result = await docs.WriteAsync(caller, access.Project, DocumentService.Prepare(path, bytes), message, pre, requireIfMatch: true, ct);
         return result.Created ? Created(http, slug, result) : Ok(http, result);
     }
 
     private static async Task<IResult> ListAsync(
-        string slug, string? prefix, string? cursor, int? limit, ClaimsPrincipal user,
+        string slug, string? prefix, bool? deleted, string? cursor, int? limit, ClaimsPrincipal user,
         ProjectAuthorizer authz, DdmDbContext db, CancellationToken ct)
     {
         var access = await authz.RequireAsync(Caller.From(user), slug, Role.Reader, ct);
@@ -90,6 +90,7 @@ public static class DocumentEndpoints
             throw ApiException.BadRequest("validation_failed", "The request is not valid", "prefix is too long");
 
         var docsQuery = db.Documents.Where(d => d.ProjectId == access.Project.Id);
+        docsQuery = deleted == true ? docsQuery.Where(d => d.DeletedAt != null) : docsQuery.Where(d => d.DeletedAt == null);
         if (!string.IsNullOrEmpty(prefix)) docsQuery = docsQuery.Where(d => d.Path.StartsWith(prefix));
         if (after is not null) docsQuery = docsQuery.Where(d => string.Compare(d.Path, after) > 0);
 

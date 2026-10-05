@@ -78,7 +78,7 @@ public class DocumentListDeleteTests(PostgresFixture pg) : ApiTestBase(pg)
     }
 
     [Fact]
-    public async Task Delete_removes_the_document_and_its_versions()
+    public async Task Delete_tombstones_the_document_and_keeps_its_versions()
     {
         var alice = await SeedAsync("a.md");
         await PutDocAsync(alice, "p", "a.md", "# two", ifMatch: "\"v1\"");
@@ -87,18 +87,19 @@ public class DocumentListDeleteTests(PostgresFixture pg) : ApiTestBase(pg)
 
         using var scope = Factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<DdmDbContext>();
-        Assert.Equal(0, await db.Versions.CountAsync());
+        Assert.Equal(2, await db.Versions.CountAsync());
+        Assert.NotNull((await db.Documents.SingleAsync()).DeletedAt);
         Assert.Contains(await db.AuditEntries.Select(e => e.Action).ToListAsync(), a => a == "doc.delete");
     }
 
     [Fact]
-    public async Task A_deleted_path_can_be_created_again_from_version_1()
+    public async Task Recreating_a_deleted_path_continues_its_version_numbers()
     {
         var alice = await SeedAsync("a.md");
         await alice.DeleteAsync("/api/v1/projects/p/docs/a.md");
         var r = await PutDocAsync(alice, "p", "a.md", "# reborn");
         Assert.Equal(HttpStatusCode.Created, r.StatusCode);
-        Assert.Equal("\"v1\"", r.Headers.ETag!.Tag);
+        Assert.Equal("\"v2\"", r.Headers.ETag!.Tag);
     }
 
     [Fact]
