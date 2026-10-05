@@ -59,6 +59,20 @@ public class ApiExceptionHandlerTests
     }
 
     [Fact]
+    public async Task Kestrel_body_too_large_maps_to_the_same_413_code_as_the_bounded_reads()
+    {
+        // TestServer has no writable body-size limit, so a Kestrel-thrown exception can only be exercised here.
+        var kestrel = await RunAsync(new BadHttpRequestException("Request body too large.", StatusCodes.Status413PayloadTooLarge));
+        var bounded = await RunAsync(ApiException.PayloadTooLarge("Assets are limited to 10 bytes"));
+        Assert.True(kestrel.Handled);
+        Assert.Equal(413, kestrel.Status);
+        Assert.StartsWith("application/problem+json", kestrel.ContentType);
+        Assert.Equal("payload_too_large", kestrel.Body.GetProperty("code").GetString());
+        Assert.Equal(bounded.Body.GetProperty("code").GetString(), kestrel.Body.GetProperty("code").GetString());
+        Assert.Equal(bounded.Body.GetProperty("type").GetString(), kestrel.Body.GetProperty("type").GetString());
+    }
+
+    [Fact]
     public async Task Unknown_exceptions_are_left_to_the_default_500_path()
     {
         var r = await RunAsync(new InvalidOperationException("boom"));

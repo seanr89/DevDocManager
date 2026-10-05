@@ -8,6 +8,10 @@ public sealed class ApiExceptionHandler(IProblemDetailsService problems) : IExce
     public ValueTask<bool> TryHandleAsync(HttpContext ctx, Exception ex, CancellationToken ct) => ex switch
     {
         ApiException api => WriteAsync(ctx, ex, api.Status, api.Code, api.Title, api.Detail, api.Extensions),
+        // Kestrel enforces the limit set by RequestBody.AllowUpTo mid-read on chunked bodies; answer with the same
+        // problem code as RequestBody's own checks.
+        BadHttpRequestException { StatusCode: StatusCodes.Status413PayloadTooLarge } big =>
+            WriteAsync(ctx, ex, big.StatusCode, ProblemCodes.ForStatus(big.StatusCode), "The request body is too large", big.Message, null),
         BadHttpRequestException bad => WriteAsync(ctx, ex, bad.StatusCode, "bad_request", "The request could not be read", bad.Message, null),
         _ => ValueTask.FromResult(false),
     };

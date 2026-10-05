@@ -126,6 +126,57 @@ public class AssetTests(PostgresFixture pg) : ApiTestBase(pg)
         Assert.Equal("payload_too_large", await ProblemCodeAsync(r));
     }
 
+    // The two tests below send no Content-Length, so they reach RequestBody's bounded read / the multipart limit.
+    // TestServer does not enforce Kestrel's own limit (the handler mapping for that is in ApiExceptionHandlerTests).
+    [Fact]
+    public async Task Oversized_chunked_uploads_are_413()
+    {
+        var alice = await AliceAsync();
+        var big = new byte[10 * 1024 * 1024 + 1];
+        PngBytes.CopyTo(big, 0);
+        var content = new StreamContent(new UnknownLengthStream(big));
+        Assert.Null(content.Headers.ContentLength);
+        var request = new HttpRequestMessage(HttpMethod.Put, "/api/v1/projects/p/assets/big.png") { Content = content };
+        request.Headers.TransferEncodingChunked = true;
+        var r = await alice.SendAsync(request);
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, r.StatusCode);
+        Assert.Equal("payload_too_large", await ProblemCodeAsync(r));
+        Assert.Equal(0, Factory.Blobs.Count);
+    }
+
+    [Fact]
+    public async Task Oversized_multipart_uploads_are_413()
+    {
+        var alice = await AliceAsync();
+        var big = new byte[10 * 1024 * 1024 + 1];
+        PngBytes.CopyTo(big, 0);
+        var form = new MultipartFormDataContent
+        {
+            { new StringContent("big.png"), "path" },
+            { new ByteArrayContent(big), "file", "big.png" },
+        };
+        var r = await alice.PostAsync("/api/v1/projects/p/assets", form);
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, r.StatusCode);
+        Assert.Equal("payload_too_large", await ProblemCodeAsync(r));
+        Assert.Equal(0, Factory.Blobs.Count);
+    }
+
+    /// <summary>Hides its length so the request goes out chunked, with no Content-Length.</summary>
+    private sealed class UnknownLengthStream(byte[] bytes) : Stream
+    {
+        private readonly MemoryStream _inner = new(bytes);
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => _inner.Position; set => throw new NotSupportedException(); }
+        public override int Read(byte[] buffer, int offset, int count) => _inner.Read(buffer, offset, count);
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
     [Fact]
     public async Task Svg_and_text_are_served_inertly()
     {
