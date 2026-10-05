@@ -68,6 +68,23 @@ public class ContentEndpointTests(PostgresFixture pg) : ApiTestBase(pg)
         Assert.Equal(HttpStatusCode.OK, (await Anonymous().GetAsync(Signer.UrlFor(pid, Sha(PngBytes)))).StatusCode);
     }
 
+    [Theory]
+    [InlineData("x.svg", "a.txt")] // the text row sorts first by path
+    [InlineData("a.svg", "x.txt")] // the image row sorts first by path
+    public async Task The_same_bytes_at_an_image_and_a_text_path_are_served_as_the_image(string imagePath, string textPath)
+    {
+        var alice = ClientFor("alice");
+        await CreateProjectAsync(alice, "p");
+        var svg = Encoding.UTF8.GetBytes("<svg xmlns=\"http://www.w3.org/2000/svg\"><rect/></svg>");
+        Assert.Equal(HttpStatusCode.Created, (await PutAssetAsync(alice, "p", imagePath, svg)).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await PutAssetAsync(alice, "p", textPath, svg)).StatusCode);
+
+        var r = await Anonymous().GetAsync(Signer.UrlFor(await ProjectIdAsync("p"), Sha(svg)));
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        Assert.Equal("image/svg+xml", r.Content.Headers.ContentType!.MediaType);
+        Assert.NotEqual("attachment", r.Content.Headers.ContentDisposition?.DispositionType);
+    }
+
     [Fact]
     public async Task The_app_refuses_to_start_without_a_content_signing_key()
     {

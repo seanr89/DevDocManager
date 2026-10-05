@@ -23,9 +23,12 @@ public static class ContentEndpoints
         }
 
         // Tombstoned assets still count: a page rendered before the delete may still show the image.
+        // The same bytes can sit at an .svg and a .txt path, so prefer live rows, then image rows, so an image link serves as an image.
         var asset = await db.Assets.AsNoTracking()
                         .Where(a => a.ProjectId == projectId && a.Sha256 == sha)
-                        .OrderBy(a => a.Path)
+                        .OrderBy(a => a.DeletedAt != null)
+                        .ThenBy(a => !a.ContentType.StartsWith("image/"))
+                        .ThenBy(a => a.Path)
                         .FirstOrDefaultAsync(ct)
                     ?? throw ApiException.NotFound("not_found", "Content not found");
         var maxAge = Math.Max(0, expiry - time.GetUtcNow().ToUnixTimeSeconds());
