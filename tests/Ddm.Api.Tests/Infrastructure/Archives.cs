@@ -26,7 +26,11 @@ public static class Archives
         using var ms = new MemoryStream();
         using (var gzip = new GZipStream(ms, CompressionLevel.Fastest, leaveOpen: true))
         using (var tar = new TarWriter(gzip, TarEntryFormat.Pax, leaveOpen: true))
+        {
             foreach (var e in entries) tar.WriteEntry(e);
+            // TarWriter emits nothing at all without entries; a real empty tar is the two zero end-of-archive blocks.
+            if (entries.Length == 0) gzip.Write(new byte[1024]);
+        }
         return ms.ToArray();
     }
 

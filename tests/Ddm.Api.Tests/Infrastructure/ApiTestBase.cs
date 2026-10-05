@@ -123,4 +123,12 @@ public abstract class ApiTestBase(PostgresFixture pg) : IAsyncLifetime
         if (ifMatch is not null) request.Headers.TryAddWithoutValidation("If-Match", ifMatch);
         return client.SendAsync(request);
     }
+
+    protected static Task<HttpResponseMessage> PublishAsync(
+        HttpClient client, string slug, byte[] archive, string query = "", string mediaType = "application/gzip")
+    {
+        var content = new ByteArrayContent(archive);
+        content.Headers.ContentType = new(mediaType);
+        return client.PostAsync($"/api/v1/projects/{slug}/publish{query}", content);
+    }
 }
