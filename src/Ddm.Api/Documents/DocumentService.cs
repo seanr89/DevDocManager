@@ -141,7 +141,7 @@ public sealed class DocumentService(DdmDbContext db, IBlobStore blobs)
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         // Lock the row so a concurrent write either commits before our If-Match check or fails after we delete.
         var doc = await db.Documents
-                      .FromSqlInterpolated($"SELECT * FROM \"Documents\" WHERE \"ProjectId\" = {project.Id} AND \"Path\" = {path} FOR UPDATE")
+                      .FromSqlInterpolated($"SELECT *, xmin FROM \"Documents\" WHERE \"ProjectId\" = {project.Id} AND \"Path\" = {path} FOR UPDATE")
                       .SingleOrDefaultAsync(ct)
                   ?? throw ApiException.NotFound("document_not_found", "Document not found");
         if (pre.IfMatchVersion is { } v)

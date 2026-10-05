@@ -86,10 +86,10 @@ public static class ProjectEndpoints
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         // Versions have no FK (they are polymorphic), so remove them explicitly.
         await db.Versions
-            .Where(v => v.ItemType == ItemType.Document
-                        && db.Documents.Any(d => d.Id == v.ItemId && d.ProjectId == project.Id))
+            .Where(v => (v.ItemType == ItemType.Document && db.Documents.Any(d => d.Id == v.ItemId && d.ProjectId == project.Id))
+                        || (v.ItemType == ItemType.Spec && db.Specs.Any(s => s.Id == v.ItemId && s.ProjectId == project.Id)))
             .ExecuteDeleteAsync(ct);
-        db.Projects.Remove(project); // cascades to members, documents, tokens
+        db.Projects.Remove(project); // cascades to members, documents, assets, specs, tags (and their assignments), tokens
         db.Audit(caller, project.Id, "project.delete", project.Slug);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);

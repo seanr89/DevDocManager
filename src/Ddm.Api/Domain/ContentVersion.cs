@@ -1,6 +1,6 @@
 namespace Ddm.Api.Domain;
 
-/// <summary>Immutable snapshot of a Document (or, later, a Spec). Table name: versions.</summary>
+/// <summary>Immutable snapshot of a Document or Spec. Table name: versions.</summary>
 public class ContentVersion
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -11,5 +11,7 @@ public class ContentVersion
     public required string ContentSha256 { get; set; }
     public required string Author { get; set; }
     public string? Message { get; set; }
+    /// <summary>Specs only: the normalised JSON form of this version.</summary>
+    public string? NormalizedRef { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
