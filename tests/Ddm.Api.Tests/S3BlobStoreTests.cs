@@ -72,4 +72,19 @@ public class S3BlobStoreTests : IAsyncLifetime
     [Fact]
     public async Task Ensuring_the_bucket_twice_does_not_throw() =>
         await S3BlobStore.EnsureBucketAsync(_s3, "ddm-test", default);
+
+    [Fact]
+    public async Task Open_read_streams_the_object()
+    {
+        var bytes = new byte[300_000];
+        Random.Shared.NextBytes(bytes);
+        await _store.PutAsync("stream", bytes, "application/octet-stream", default);
+        await using var stream = await _store.OpenReadAsync("stream", default);
+        using var ms = new MemoryStream();
+        await stream!.CopyToAsync(ms);
+        Assert.Equal(bytes, ms.ToArray());
+    }
+
+    [Fact]
+    public async Task Open_read_of_a_missing_key_is_null() => Assert.Null(await _store.OpenReadAsync("nope", default));
 }

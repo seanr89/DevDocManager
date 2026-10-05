@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Ddm.Api.Projects;
 using Ddm.Api.Tokens;
 using Npgsql;
@@ -82,6 +83,23 @@ public abstract class ApiTestBase(PostgresFixture pg) : IAsyncLifetime
     {
         var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/projects/{slug}/docs/{path}");
         if (accept is not null) request.Headers.TryAddWithoutValidation("Accept", accept);
+        return client.SendAsync(request);
+    }
+
+    /// <summary>The smallest bytes our sniffer accepts as PNG.</summary>
+    protected static readonly byte[] PngBytes = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52];
+
+    /// <summary>A different PNG, for replace tests.</summary>
+    protected static byte[] PngVariant(byte n) => [.. PngBytes, n];
+
+    protected static string Sha(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+
+    protected static Task<HttpResponseMessage> PutAssetAsync(
+        HttpClient client, string slug, string path, byte[] bytes, string? ifMatch = null, string? ifNoneMatch = null)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Put, $"/api/v1/projects/{slug}/assets/{path}") { Content = new ByteArrayContent(bytes) };
+        if (ifMatch is not null) request.Headers.TryAddWithoutValidation("If-Match", ifMatch);
+        if (ifNoneMatch is not null) request.Headers.TryAddWithoutValidation("If-None-Match", ifNoneMatch);
         return client.SendAsync(request);
     }
 }

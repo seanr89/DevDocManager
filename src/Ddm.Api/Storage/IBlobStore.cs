@@ -7,4 +7,7 @@ public interface IBlobStore
 
     /// <summary>Returns null when the key does not exist.</summary>
     Task<byte[]?> GetAsync(string key, CancellationToken ct);
+
+    /// <summary>Opens the object for streaming; the caller disposes the stream. Returns null when the key does not exist.</summary>
+    Task<Stream?> OpenReadAsync(string key, CancellationToken ct);
 }

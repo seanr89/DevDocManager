@@ -27,6 +27,19 @@ public sealed class S3BlobStore(IAmazonS3 s3, string bucket) : IBlobStore
         }
     }
 
+    public async Task<Stream?> OpenReadAsync(string key, CancellationToken ct)
+    {
+        try
+        {
+            var response = await s3.GetObjectAsync(bucket, key, ct);
+            return response.ResponseStream; // disposing the stream releases the connection
+        }
+        catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
     public static async Task EnsureBucketAsync(IAmazonS3 s3, string bucket, CancellationToken ct)
     {
         try { await s3.PutBucketAsync(bucket, ct); }
