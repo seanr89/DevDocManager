@@ -147,4 +147,22 @@ public class DocumentTagTests(PostgresFixture pg) : ApiTestBase(pg)
         Assert.Equal(HttpStatusCode.Forbidden, (await ClientFor("ed").DeleteAsync("/api/v1/projects/p/tags/x")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await PutTagsAsync(ClientFor("rd"), "/api/v1/projects/p/docs/b.md/tags", "y")).StatusCode);
     }
+
+    [Fact]
+    public async Task Racing_tag_replacements_of_one_document_never_500()
+    {
+        var alice = await AliceAsync();
+        await PutDocAsync(alice, "p", "a.md", "# A");
+        await PutTagsAsync(alice, "/api/v1/projects/p/docs/a.md/tags", "t1", "t2", "t3");
+
+        // Every request loads the same three assignments and stages their deletion, so the delete path races.
+        var results = await Task.WhenAll(Enumerable.Range(0, 8)
+            .Select(i => PutTagsAsync(alice, "/api/v1/projects/p/docs/a.md/tags", $"n{i}")));
+
+        Assert.All(results, r => Assert.True(r.StatusCode is HttpStatusCode.OK or HttpStatusCode.Conflict, $"got {(int)r.StatusCode}"));
+        foreach (var r in results.Where(r => r.StatusCode == HttpStatusCode.Conflict))
+            Assert.Equal("tags_conflict", await ProblemCodeAsync(r));
+        Assert.Contains(results, r => r.StatusCode == HttpStatusCode.OK);
+        Assert.Single(await DocTagsAsync(alice, "a.md"));
+    }
 }

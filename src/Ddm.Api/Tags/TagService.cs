@@ -36,7 +36,10 @@ public sealed class TagService(DdmDbContext db)
         await StageSetAsync(projectId, item, names, ct);
         db.Audit(caller, projectId, "tags.set", target);
         try { await db.SaveChangesAsync(ct); }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
+        // A unique violation is a racing insert, a concurrency exception a racing delete of the same assignment,
+        // and a foreign-key violation a tag removed between staging and saving.
+        catch (Exception ex) when (ex is DbUpdateConcurrencyException
+                                   || ex is DbUpdateException dbe && (dbe.IsUniqueViolation() || dbe.IsForeignKeyViolation()))
         {
             throw ApiException.Conflict("tags_conflict", "The tags were changed concurrently; retry");
         }

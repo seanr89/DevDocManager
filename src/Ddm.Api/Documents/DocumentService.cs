@@ -63,9 +63,9 @@ public sealed class DocumentService(DdmDbContext db, IBlobStore blobs, TagServic
         await UploadAsync(project, prepared, ct);
         var result = await StageAsync(caller, project, prepared, state, message, ct);
         try { await db.SaveChangesAsync(ct); }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
+        catch (DbUpdateException ex) when (ex.IsUniqueViolation() || ex.IsForeignKeyViolation())
         {
-            // Another writer took this version number (or created this path) first.
+            // Another writer took this version number (or created this path) first, or an admin deleted a tag we staged.
             throw ApiException.PreconditionFailed("The document was changed by another writer; fetch the latest version and retry");
         }
         catch (DbUpdateConcurrencyException)
