@@ -36,15 +36,22 @@ public sealed class TagService(DdmDbContext db)
         await StageSetAsync(projectId, item, names, ct);
         db.Audit(caller, projectId, "tags.set", target);
         try { await db.SaveChangesAsync(ct); }
-        // A unique violation is a racing insert, a concurrency exception a racing delete of the same assignment,
-        // and a foreign-key violation a tag removed between staging and saving.
-        catch (Exception ex) when (ex is DbUpdateConcurrencyException
-                                   || ex is DbUpdateException dbe && (dbe.IsUniqueViolation() || dbe.IsForeignKeyViolation()))
-        {
-            throw ApiException.Conflict("tags_conflict", "The tags were changed concurrently; retry");
-        }
+        catch (Exception ex) when (IsTagRace(ex)) { throw TagsConflict(); }
         return names;
     }
+
+    /// <summary>
+    /// True when a failed save means a racing tag write: a unique violation is a racing insert, a concurrency
+    /// exception a racing delete of the same assignment, and a foreign-key violation a tag removed between staging
+    /// and saving.
+    /// </summary>
+    public static bool IsTagRace(Exception ex) =>
+        ex is DbUpdateConcurrencyException
+        || ex is DbUpdateException dbe && (dbe.IsUniqueViolation() || dbe.IsForeignKeyViolation());
+
+    /// <summary>The 409 every racing tag write maps to.</summary>
+    public static ApiException TagsConflict() =>
+        ApiException.Conflict("tags_conflict", "The tags were changed concurrently; retry");
 
     /// <summary>Tag names for each item, ordered by name; items without tags map to an empty list.</summary>
     public async Task<Dictionary<Guid, IReadOnlyList<string>>> TagsForAsync(ItemType type, IReadOnlyCollection<Guid> ids, CancellationToken ct)

@@ -87,13 +87,7 @@ public static class ProjectEndpoints
         if (names is not null) await tags.StageSetAsync(p.Id, new ItemRef(ItemType.Project, p.Id), names, ct);
         db.Audit(caller, p.Id, "project.update", p.Slug);
         try { await db.SaveChangesAsync(ct); }
-        // Same racing-write cases TagService.SetFromRequestAsync maps: racing insert, racing delete, removed tag.
-        catch (Exception ex) when (names is not null
-                                   && (ex is DbUpdateConcurrencyException
-                                       || ex is DbUpdateException dbe && (dbe.IsUniqueViolation() || dbe.IsForeignKeyViolation())))
-        {
-            throw ApiException.Conflict("tags_conflict", "The tags were changed concurrently; retry");
-        }
+        catch (Exception ex) when (names is not null && TagService.IsTagRace(ex)) { throw TagService.TagsConflict(); }
         return Results.Ok(ProjectDto.From(p, access.Role, await tags.TagsForAsync(new ItemRef(ItemType.Project, p.Id), ct)));
     }
 
