@@ -30,7 +30,10 @@ public static class ArchiveReader
             if (format == ArchiveFormat.TarGz) await ReadTarAsync(archive, state, ct);
             else await ReadZipAsync(archive, state, ct);
         }
-        catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException or FormatException)
+        // Anything the BCL archive readers throw on malformed bytes is the client's fault (400), never a 500.
+        // ApiException (413/422) and OperationCanceledException are not in this list, so they pass through.
+        catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException or FormatException
+                                       or NotSupportedException or ArgumentException or IOException)
         {
             throw ApiException.BadRequest("invalid_archive", "The archive could not be read", ex.Message);
         }
@@ -43,7 +46,10 @@ public static class ArchiveReader
     private static async Task ReadTarAsync(Stream archive, State state, CancellationToken ct)
     {
         await using var gzip = new GZipStream(archive, CompressionMode.Decompress, leaveOpen: true);
-        await using var tar = new TarReader(gzip, leaveOpen: true);
+        // TarReader decompresses the bodies of entries we skip (hidden, links, duplicates) and its own long-name and
+        // PAX header payloads without exposing them, so meter the whole decompressed stream, not only the bodies we keep.
+        await using var metered = new MeteredReadStream(gzip, state.MaxTarStreamBytes);
+        await using var tar = new TarReader(metered, leaveOpen: true);
         while (await tar.GetNextEntryAsync(copyData: false, ct) is { } entry)
         {
             state.CountEntry();
@@ -83,6 +89,14 @@ public static class ArchiveReader
         private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
         private long _expanded;
         private int _entries;
+
+        /// <summary>
+        /// Cap on the decompressed tar stream: the expanded-bytes limit plus room for tar framing. Each entry costs a
+        /// 512-byte header, up to 511 bytes of padding, and possibly a PAX or GNU long-name header with its payload;
+        /// 4 KiB per entry covers that with room for long paths. The 20 KiB tail covers the two zero end blocks and the
+        /// padding to a 10 KiB record that tar writers add. The per-entry check in <see cref="AddAsync"/> stays exact.
+        /// </summary>
+        public long MaxTarStreamBytes => limits.MaxExpandedBytes + 4096L * limits.MaxEntries + 20 * 1024;
 
         public void CountEntry()
         {
@@ -141,6 +155,36 @@ public static class ArchiveReader
             }
             Files.Add(new(path, ms.ToArray()));
         }
+    }
+
+    /// <summary>Passes reads through and fails with 413 once more than <c>max</c> bytes have been read.</summary>
+    private sealed class MeteredReadStream(Stream inner, long max) : Stream
+    {
+        private long _read;
+
+        private int Count(int n)
+        {
+            _read += n;
+            if (_read > max) throw TooLarge($"The archive expands to more than {max} bytes");
+            return n;
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) => Count(inner.Read(buffer, offset, count));
+        public override int Read(Span<byte> buffer) => Count(inner.Read(buffer));
+        public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken ct) =>
+            Count(await inner.ReadAsync(buffer.AsMemory(offset, count), ct));
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default) =>
+            Count(await inner.ReadAsync(buffer, ct));
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     private static ApiException TooLarge(string detail) => new(413, "archive_too_large", "The archive is too large", detail);

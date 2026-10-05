@@ -118,6 +118,43 @@ public class ArchiveReaderTests
         Assert.Equal("archive_too_large", code);
     }
 
+    // Entries the reader skips are still decompressed by the tar reader to reach the next header, so they must be metered too.
+    [Fact]
+    public async Task A_huge_hidden_entry_is_metered_even_though_it_is_skipped()
+    {
+        var zeros = new byte[5_000_000]; // compresses to a few KB
+        var archive = Archives.TarGz(("a.md", Archives.Text("# a")), (".git/huge", zeros));
+        Assert.True(archive.Length < 100_000);
+        var (code, _) = await FailAsync(archive, limits: Limits with { MaxEntryBytes = 10_000_000 });
+        Assert.Equal("archive_too_large", code);
+    }
+
+    [Fact]
+    public async Task A_huge_duplicate_entry_is_metered_even_though_it_is_skipped()
+    {
+        var (code, _) = await FailAsync(Archives.TarGz(("a.md", Archives.Text("# a")), ("a.md", new byte[5_000_000])),
+            limits: Limits with { MaxEntryBytes = 10_000_000 });
+        Assert.Equal("archive_too_large", code);
+    }
+
+    [Fact]
+    public async Task Tar_framing_does_not_count_against_a_legitimate_archive_at_the_limit()
+    {
+        var files = Enumerable.Range(0, 10).Select(i => ($"f{i}.txt", new byte[1_000])).ToArray();
+        var c = await ReadAsync(Archives.TarGz(files), limits: Limits with { MaxExpandedBytes = 10_000 });
+        Assert.Equal(10, c.Files.Count);
+    }
+
+    [Fact]
+    public async Task A_truncated_archive_is_400()
+    {
+        var noise = new byte[50_000]; // incompressible, so half the archive is still mid-entry
+        new Random(1).NextBytes(noise);
+        var archive = Archives.TarGz(("a.md", noise));
+        var (code, _) = await FailAsync(archive[..(archive.Length / 2)]);
+        Assert.Equal("invalid_archive", code);
+    }
+
     [Theory] [InlineData(ArchiveFormat.TarGz)] [InlineData(ArchiveFormat.Zip)]
     public async Task Corrupt_archives_are_400(ArchiveFormat format)
     {
