@@ -107,6 +107,64 @@ public class PublishTests(PostgresFixture pg) : ApiTestBase(pg)
         Assert.Equal(12, forced.Deleted.Count);
     }
 
+    // Spec review focus 1: a folder meant for guides/ published with the wrong (empty) prefix
+    [Fact]
+    public async Task A_wrong_prefix_that_would_wipe_other_folders_trips_the_mass_delete_guard()
+    {
+        var alice = await AliceAsync();
+        var existing = Enumerable.Range(0, 8).Select(i => ($"guides/g{i}.md", T($"# g{i}")))
+            .Concat(Enumerable.Range(0, 4).Select(i => ($"reference/r{i}.md", T($"# r{i}")))).ToArray();
+        await OkAsync(PublishAsync(alice, "p", Folder(existing)));
+
+        // The folder's own files, relative to guides/; the caller forgot ?prefix=guides/, so the scope is the whole project.
+        var wrong = await PublishAsync(alice, "p", Folder(("g0.md", T("# g0")), ("g1.md", T("# g1"))));
+        Assert.Equal(HttpStatusCode.Conflict, wrong.StatusCode);
+        Assert.Equal("publish_mass_delete", await ProblemCodeAsync(wrong));
+        var dry = await PublishAsync(alice, "p", Folder(("g0.md", T("# g0")), ("g1.md", T("# g1"))), "?dryRun=true");
+        Assert.Equal("publish_mass_delete", await ProblemCodeAsync(dry));
+        var docs = await ReadAsync<Page<DocumentSummaryDto>>(await alice.GetAsync("/api/v1/projects/p/docs?limit=100"));
+        Assert.Equal(12, docs.Items.Count);
+        Assert.Equal(HttpStatusCode.OK, (await GetDocAsync(alice, "p", "reference/r0.md")).StatusCode);
+
+        // With the right prefix the same folder is a normal mirror of guides/ and reference/ is untouched.
+        var right = await OkAsync(PublishAsync(alice, "p", Folder(("g0.md", T("# g0")), ("g1.md", T("# g1")), ("g2.md", T("# g2")),
+            ("g3.md", T("# g3")), ("g4.md", T("# g4")), ("g5.md", T("# g5")), ("g6.md", T("# g6"))), "?prefix=guides/"));
+        Assert.Equal(["guides/g7.md"], right.Deleted.Select(i => i.Key));
+        Assert.Equal(HttpStatusCode.OK, (await GetDocAsync(alice, "p", "reference/r0.md")).StatusCode);
+    }
+
+    // Spec review focus 1: after an allowed mass delete every item can still be brought back
+    [Fact]
+    public async Task After_an_allowed_mass_delete_every_item_can_be_brought_back()
+    {
+        var alice = await AliceAsync();
+        var docFiles = Enumerable.Range(0, 5).Select(i => ($"d{i}.md", T($"# d{i}")));
+        await OkAsync(PublishAsync(alice, "p", Folder([.. docFiles, ("img/logo.png", PngBytes), ("apis/pay.yaml", T(Spec))])));
+        var forced = await OkAsync(PublishAsync(alice, "p", Archives.TarGzEntries(), "?allowMassDelete=true"));
+        Assert.Equal(7, forced.Deleted.Count);
+        Assert.Equal(HttpStatusCode.NotFound, (await alice.GetAsync("/api/v1/projects/p/assets/img/logo.png")).StatusCode);
+
+        // Assets have no restore endpoint: for them "restorable" means publishing the file again revives the tombstoned row.
+        // Done first, while nothing else is live, so the mass-delete guard has nothing to object to.
+        var revived = await OkAsync(PublishAsync(alice, "p", Folder(("img/logo.png", PngBytes))));
+        Assert.Equal(["img/logo.png"], revived.Created.Select(i => i.Key));
+        Assert.Equal(HttpStatusCode.OK, (await alice.GetAsync("/api/v1/projects/p/assets/img/logo.png")).StatusCode);
+
+        // Documents and specs come back from their history.
+        foreach (var d in forced.Deleted.Where(i => i.Type == "document"))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, (await GetDocAsync(alice, "p", d.Key)).StatusCode);
+            var history = await ReadAsync<Page<VersionDto>>(await alice.GetAsync($"/api/v1/projects/p/docs/{d.Key}/versions"));
+            Assert.Single(history.Items);
+            Assert.Equal(HttpStatusCode.OK, (await alice.PostAsync($"/api/v1/projects/p/docs/{d.Key}/versions/1/restore", null)).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await GetDocAsync(alice, "p", d.Key)).StatusCode);
+        }
+        Assert.Equal(HttpStatusCode.NotFound, (await alice.GetAsync("/api/v1/projects/p/specs/pay")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await alice.GetAsync("/api/v1/projects/p/specs/pay/versions")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await alice.PostAsync("/api/v1/projects/p/specs/pay/versions/1/restore", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await alice.GetAsync("/api/v1/projects/p/specs/pay")).StatusCode);
+    }
+
     // Spec review focus 2: atomicity
     [Fact]
     public async Task One_bad_file_fails_the_publish_and_writes_nothing()
