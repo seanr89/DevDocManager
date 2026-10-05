@@ -4,6 +4,7 @@ using Ddm.Api.Data;
 using Ddm.Api.Documents;
 using Ddm.Api.Identity;
 using Ddm.Api.Projects;
+using Ddm.Api.Specs;
 using Ddm.Api.Storage;
 using Ddm.Api.Tags;
 using Ddm.Api.Tokens;
@@ -24,6 +25,7 @@ builder.Services.AddSingleton<MarkdownRenderer>();
 builder.Services.AddScoped<TagService>();
 builder.Services.AddDdmAssets(builder.Configuration);
 builder.Services.AddDdmContent(builder.Configuration);
+builder.Services.AddDdmSpecs(builder.Configuration);
 builder.Services.AddOpenApi();
 builder.Services.AddOpenTelemetry().WithMetrics(m => m.AddAspNetCoreInstrumentation().AddPrometheusExporter());
 
@@ -54,6 +56,7 @@ v1.MapTokens();
 v1.MapDocuments();
 v1.MapTags();
 v1.MapAssets();
+v1.MapSpecs();
 
 app.Run();
 
