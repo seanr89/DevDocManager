@@ -67,6 +67,66 @@ namespace Ddm.Api.Data.Migrations
                     b.ToTable("ApiTokens");
                 });
 
+            modelBuilder.Entity("Ddm.Api.Domain.Asset", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Path")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .UseCollation("C");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long>("Size")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("StorageKey")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId", "Path")
+                        .IsUnique();
+
+                    b.HasIndex("ProjectId", "Sha256");
+
+                    b.ToTable("Assets");
+                });
+
             modelBuilder.Entity("Ddm.Api.Domain.AuditEntry", b =>
                 {
                     b.Property<long>("Id")
@@ -139,6 +199,10 @@ namespace Ddm.Api.Data.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<string>("NormalizedRef")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
                     b.Property<int>("Number")
                         .HasColumnType("integer");
 
@@ -159,6 +223,9 @@ namespace Ddm.Api.Data.Migrations
                     b.Property<Guid?>("CurrentVersionId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("FrontMatter")
                         .IsRequired()
                         .HasColumnType("jsonb");
@@ -171,6 +238,12 @@ namespace Ddm.Api.Data.Migrations
 
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uuid");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.Property<string>("Title")
                         .IsRequired()
@@ -246,7 +319,123 @@ namespace Ddm.Api.Data.Migrations
                     b.ToTable("Projects");
                 });
 
+            modelBuilder.Entity("Ddm.Api.Domain.Spec", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ApiVersion")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("CurrentVersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Format")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .UseCollation("C");
+
+                    b.Property<string>("OpenApiVersion")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<int>("OperationCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Operations")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("Specs");
+                });
+
+            modelBuilder.Entity("Ddm.Api.Domain.Tag", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .UseCollation("C");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("Tags");
+                });
+
+            modelBuilder.Entity("Ddm.Api.Domain.TagAssignment", b =>
+                {
+                    b.Property<Guid>("TagId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ItemType")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("TagId", "ItemType", "ItemId");
+
+                    b.HasIndex("ItemType", "ItemId");
+
+                    b.ToTable("TagAssignments");
+                });
+
             modelBuilder.Entity("Ddm.Api.Domain.ApiToken", b =>
+                {
+                    b.HasOne("Ddm.Api.Domain.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ddm.Api.Domain.Asset", b =>
                 {
                     b.HasOne("Ddm.Api.Domain.Project", null)
                         .WithMany()
@@ -269,6 +458,33 @@ namespace Ddm.Api.Data.Migrations
                     b.HasOne("Ddm.Api.Domain.Project", null)
                         .WithMany()
                         .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ddm.Api.Domain.Spec", b =>
+                {
+                    b.HasOne("Ddm.Api.Domain.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ddm.Api.Domain.Tag", b =>
+                {
+                    b.HasOne("Ddm.Api.Domain.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ddm.Api.Domain.TagAssignment", b =>
+                {
+                    b.HasOne("Ddm.Api.Domain.Tag", null)
+                        .WithMany()
+                        .HasForeignKey("TagId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

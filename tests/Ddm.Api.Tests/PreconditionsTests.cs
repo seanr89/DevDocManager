@@ -32,4 +32,27 @@ public class PreconditionsTests
     [Fact]
     public void If_none_match_only_supports_star() =>
         Assert.Equal("invalid_etag", Assert.Throws<ApiException>(() => Parse(ifNoneMatch: "\"v1\"")).Code);
+
+    private static readonly string Sha = new('a', 64);
+
+    private static ShaPrecondition ParseSha(string? ifMatch = null, string? ifNoneMatch = null)
+    {
+        IHeaderDictionary h = new HeaderDictionary();
+        if (ifMatch is not null) h.IfMatch = ifMatch;
+        if (ifNoneMatch is not null) h.IfNoneMatch = ifNoneMatch;
+        return Preconditions.ParseSha(h);
+    }
+
+    [Fact] public void Sha_etag() => Assert.Equal(Sha, ParseSha($"\"{Sha}\"").IfMatchSha);
+    [Fact] public void Sha_star_matches_any() => Assert.True(ParseSha("*").IfMatchAny);
+    [Fact] public void Sha_if_none_match_star() => Assert.True(ParseSha(ifNoneMatch: "*").IfNoneMatchAny);
+    [Fact] public void Sha_etag_formatting() => Assert.Equal($"\"{Sha}\"", Preconditions.ShaETag(Sha));
+
+    [Theory] [InlineData("\"v7\"")] [InlineData("\"abc\"")] [InlineData("abc")]
+    public void A_version_or_short_etag_is_not_a_sha_etag(string value) =>
+        Assert.Equal("invalid_etag", Assert.Throws<ApiException>(() => ParseSha(value)).Code);
+
+    [Fact]
+    public void Uppercase_sha_etags_are_rejected() =>
+        Assert.Equal("invalid_etag", Assert.Throws<ApiException>(() => ParseSha($"\"{new string('A', 64)}\"")).Code);
 }

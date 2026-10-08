@@ -2,7 +2,6 @@ using System.Text;
 using System.Text.Json;
 using Ddm.Api.Common;
 using YamlDotNet.Core;
-using YamlDotNet.Core.Events;
 using YamlDotNet.Serialization;
 
 namespace Ddm.Api.Documents;
@@ -41,21 +40,10 @@ public static class FrontMatter
     {
         if (Encoding.UTF8.GetByteCount(yaml) > MaxBytes) throw Invalid($"Front matter is limited to {MaxBytes} bytes");
         if (string.IsNullOrWhiteSpace(yaml)) return "{}";
+        // Reject aliases (billion-laughs) and deep nesting before anything recurses over the document.
+        if (SafeYaml.Check(yaml, MaxDepth) is { } problem) throw Invalid(problem.Message);
         try
         {
-            // Reject aliases (billion-laughs) and deep nesting before anything recurses over the document.
-            var parser = new Parser(new StringReader(yaml));
-            var depth = 0;
-            while (parser.MoveNext())
-            {
-                switch (parser.Current)
-                {
-                    case AnchorAlias: throw Invalid("YAML aliases are not supported in front matter");
-                    case SequenceStart or MappingStart when ++depth > MaxDepth: throw Invalid($"Front matter is nested deeper than {MaxDepth} levels");
-                    case SequenceEnd or MappingEnd: depth--; break;
-                }
-            }
-
             var value = new DeserializerBuilder().WithAttemptingUnquotedStringTypeDeserialization().Build().Deserialize<object?>(yaml);
             if (value is null) return "{}";
             if (value is not System.Collections.IDictionary) throw Invalid("Front matter must be a YAML mapping (key: value pairs)");

@@ -1,5 +1,9 @@
+using System.Security.Cryptography;
+using Ddm.Api.Data;
 using Ddm.Api.Projects;
 using Ddm.Api.Tokens;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 
 namespace Ddm.Api.Tests.Infrastructure;
@@ -25,6 +29,13 @@ public abstract class ApiTestBase(PostgresFixture pg) : IAsyncLifetime
         // until Postgres refuses new clients (53300).
         using var conn = new NpgsqlConnection(_connectionString);
         NpgsqlConnection.ClearPool(conn);
+    }
+
+    /// <summary>Project ids are not part of the API surface, but signed content URLs are built from them.</summary>
+    protected async Task<Guid> ProjectIdAsync(string slug)
+    {
+        using var scope = Factory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<DdmDbContext>().Projects.Where(p => p.Slug == slug).Select(p => p.Id).SingleAsync();
     }
 
     protected HttpClient Anonymous() => Factory.CreateClient();
@@ -83,5 +94,41 @@ public abstract class ApiTestBase(PostgresFixture pg) : IAsyncLifetime
         var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/projects/{slug}/docs/{path}");
         if (accept is not null) request.Headers.TryAddWithoutValidation("Accept", accept);
         return client.SendAsync(request);
+    }
+
+    /// <summary>The smallest bytes our sniffer accepts as PNG.</summary>
+    protected static readonly byte[] PngBytes = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52];
+
+    /// <summary>A different PNG, for replace tests.</summary>
+    protected static byte[] PngVariant(byte n) => [.. PngBytes, n];
+
+    protected static string Sha(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+
+    protected static Task<HttpResponseMessage> PutAssetAsync(
+        HttpClient client, string slug, string path, byte[] bytes, string? ifMatch = null, string? ifNoneMatch = null)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Put, $"/api/v1/projects/{slug}/assets/{path}") { Content = new ByteArrayContent(bytes) };
+        if (ifMatch is not null) request.Headers.TryAddWithoutValidation("If-Match", ifMatch);
+        if (ifNoneMatch is not null) request.Headers.TryAddWithoutValidation("If-None-Match", ifNoneMatch);
+        return client.SendAsync(request);
+    }
+
+    protected static Task<HttpResponseMessage> PutSpecAsync(
+        HttpClient client, string slug, string name, string content, string? ifMatch = null, string mediaType = "application/yaml")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Put, $"/api/v1/projects/{slug}/specs/{name}")
+        {
+            Content = new StringContent(content, Encoding.UTF8, mediaType),
+        };
+        if (ifMatch is not null) request.Headers.TryAddWithoutValidation("If-Match", ifMatch);
+        return client.SendAsync(request);
+    }
+
+    protected static Task<HttpResponseMessage> PublishAsync(
+        HttpClient client, string slug, byte[] archive, string query = "", string mediaType = "application/gzip")
+    {
+        var content = new ByteArrayContent(archive);
+        content.Headers.ContentType = new(mediaType);
+        return client.PostAsync($"/api/v1/projects/{slug}/publish{query}", content);
     }
 }

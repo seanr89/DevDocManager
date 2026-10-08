@@ -80,4 +80,75 @@ public class DataLayerTests(PostgresFixture pg) : ApiTestBase(pg)
         var ex = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
         Assert.True(ex.IsUniqueViolation());
     }
+
+    private static Asset NewAsset(Guid projectId, string path) => new()
+    {
+        ProjectId = projectId, Path = path, ContentType = "image/png", Size = 1, Sha256 = new string('a', 64),
+        StorageKey = "k", UpdatedBy = "u",
+    };
+
+    [Fact]
+    public async Task Asset_path_spec_name_and_tag_name_are_unique_per_project()
+    {
+        using var db = NewDb();
+        var p = new Project { Slug = "p", Name = "P" };
+        db.Projects.Add(p);
+        db.Assets.Add(NewAsset(p.Id, "a.png"));
+        db.Specs.Add(new Spec { ProjectId = p.Id, Name = "api" });
+        db.Tags.Add(new Tag { ProjectId = p.Id, Name = "guide" });
+        await db.SaveChangesAsync();
+
+        foreach (var add in new Action[]
+                 {
+                     () => db.Assets.Add(NewAsset(p.Id, "a.png")),
+                     () => db.Specs.Add(new Spec { ProjectId = p.Id, Name = "api" }),
+                     () => db.Tags.Add(new Tag { ProjectId = p.Id, Name = "guide" }),
+                 })
+        {
+            db.ChangeTracker.Clear();
+            add();
+            var ex = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+            Assert.True(ex.IsUniqueViolation());
+        }
+    }
+
+    [Fact]
+    public async Task Deleting_a_project_cascades_to_assets_specs_tags_and_assignments()
+    {
+        using var db = NewDb();
+        var p = new Project { Slug = "p", Name = "P" };
+        var tag = new Tag { ProjectId = p.Id, Name = "guide" };
+        db.Projects.Add(p);
+        db.Assets.Add(NewAsset(p.Id, "a.png"));
+        db.Specs.Add(new Spec { ProjectId = p.Id, Name = "api" });
+        db.Tags.Add(tag);
+        db.TagAssignments.Add(new TagAssignment { TagId = tag.Id, ItemType = ItemType.Project, ItemId = p.Id });
+        await db.SaveChangesAsync();
+
+        db.Projects.Remove(p);
+        await db.SaveChangesAsync();
+
+        Assert.Equal(0, await db.Assets.CountAsync());
+        Assert.Equal(0, await db.Specs.CountAsync());
+        Assert.Equal(0, await db.Tags.CountAsync());
+        Assert.Equal(0, await db.TagAssignments.CountAsync());
+    }
+
+    [Fact]
+    public async Task A_stale_document_row_cannot_be_saved()
+    {
+        using var db1 = NewDb();
+        using var db2 = NewDb();
+        var p = new Project { Slug = "p", Name = "P" };
+        var doc = new Document { ProjectId = p.Id, Path = "a.md" };
+        db1.Projects.Add(p);
+        db1.Documents.Add(doc);
+        await db1.SaveChangesAsync();
+
+        var stale = await db2.Documents.SingleAsync();
+        doc.Title = "first";
+        await db1.SaveChangesAsync();
+        stale.Title = "second";
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => db2.SaveChangesAsync());
+    }
 }

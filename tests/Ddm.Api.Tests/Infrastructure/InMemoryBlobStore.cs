@@ -24,4 +24,7 @@ public sealed class InMemoryBlobStore : IBlobStore
 
     public Task<byte[]?> GetAsync(string key, CancellationToken ct) =>
         Task.FromResult<byte[]?>(_blobs.TryGetValue(key, out var b) ? b : null);
+
+    public Task<Stream?> OpenReadAsync(string key, CancellationToken ct) =>
+        Task.FromResult<Stream?>(_blobs.TryGetValue(key, out var b) ? new MemoryStream(b, writable: false) : null);
 }

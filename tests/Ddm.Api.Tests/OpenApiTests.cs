@@ -15,5 +15,8 @@ public class OpenApiTests(PostgresFixture pg) : ApiTestBase(pg)
         Assert.True(paths.TryGetProperty("/api/v1/projects", out _));
         Assert.True(paths.TryGetProperty("/api/v1/projects/{slug}", out _));
         Assert.True(paths.TryGetProperty("/api/v1/me", out _));
+        Assert.True(paths.TryGetProperty("/api/v1/projects/{slug}/specs/{name}", out _));
+        Assert.True(paths.TryGetProperty("/api/v1/projects/{slug}/publish", out _));
+        Assert.True(paths.TryGetProperty("/api/v1/projects/{slug}/tags", out _));
     }
 }
